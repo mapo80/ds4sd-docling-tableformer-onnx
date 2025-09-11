@@ -1,35 +1,32 @@
-# ds4sd-docling-layout-heron ONNX
+# ds4sd-docling-layout-heron-onnx
 
-Utilities to export the [`ds4sd/docling-layout-heron`](https://huggingface.co/ds4sd/docling-layout-heron) object detection model to ONNX and compare it against the original PyTorch implementation.
+Pipeline to compare the `ds4sd/docling-layout-heron` object detection model in three variants:
+
+1. **Baseline HuggingFace model**
+2. **ONNX converted model**
+3. **ONNX optimized model**
+
+The repository provides scripts to convert the model to ONNX, apply ONNX Runtime graph optimizations, run inference on example images and compare KPIs (IoU, timings, model size).
+
+## Requirements
+
+Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
-1. **Convert the model**
-   ```bash
-   python convert_to_onnx.py
-   ```
-   This downloads the model and produces four variants:
-   - `docling_layout_heron.onnx` – simplified full precision reference
-   - `docling_layout_heron_quant.onnx` – MatMul weights dynamically quantized to int8
-   - `docling_layout_heron_fp16.onnx` – most weights converted to float16 while keeping MatMul ops in float32
-   - `docling_layout_heron_static.onnx` – statically quantized int8 model using random calibration data
+The workflow is driven by the `Makefile`:
 
-2. **Run a quick comparison**
-   ```bash
-    python compare_models.py
-    ```
-    The script generates a random 640x640 image, runs it through PyTorch and the ONNX models, and prints the maximum absolute differences together with average inference times.
+```bash
+make convert    # export to ONNX
+make optimize   # graph optimize and optional quantization
+make infer-all  # run inference for baseline and ONNX variants
+make compare    # compute KPIs and generate reports
+```
 
-   A sample CPU run produced the following results on random 640×640 input:
+Results are written to the `results/` directory. Each run creates a timestamped folder containing reports and links to the outputs of each variant.
 
-   | model | size (MB) | time (ms) | max rel diff logits | max rel diff boxes |
-   |-------|---------:|----------:|--------------------:|-------------------:|
-   | PyTorch | n/a | 1445.89 | – | – |
-   | ONNX | 164.2 | 807.15 | – | – |
-   | Dynamic Quantized ONNX | 141.8 | 753.66 | 36.93% | 94.77% |
-   | Float16 ONNX | 97.4 | 1070.32 | 33.95% | 96.04% |
-   | Static Quantized ONNX | 42.8 | 659.89 | 72.71% | 96.09% |
-
-   Static quantization yields the smallest file but shows large divergence on the random test image.
-
-> The generated `.onnx` files are ignored by git and are not part of the repository.
+> The large model and ONNX files are stored in `models/` and ignored by git.
