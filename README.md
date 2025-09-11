@@ -1,32 +1,121 @@
 # ds4sd-docling-layout-heron-onnx
 
-Pipeline to compare the `ds4sd/docling-layout-heron` object detection model in three variants:
+## Informazioni generali
+Repository di valutazione per il modello `ds4sd/docling-layout-heron`, un detector di layout documentale. L'obiettivo è convertire il modello in diversi formati (ONNX, formato ORT, OpenVINO) e confrontarne le prestazioni su CPU.
 
-1. **Baseline HuggingFace model**
-2. **ONNX converted model**
-3. **ONNX optimized model**
+## Modello di partenza
+Il modello HuggingFace `ds4sd/docling-layout-heron` estrae strutture di layout da pagine di documento, rilevando componenti come paragrafi, titoli, tabelle e figure. Le utilità presenti in questa repo permettono di esportarlo e verificarne la parità rispetto alla versione PyTorch.
 
-The repository provides scripts to convert the model to ONNX, apply ONNX Runtime graph optimizations, run inference on example images and compare KPIs (IoU, timings, model size).
+## Modelli supportati
+- **PyTorch**: modello originale da HuggingFace.
+- **ONNX FP32**: versione convertita.
+- **ONNX FP32 ottimizzato**: generato con le ottimizzazioni di ONNX Runtime.
+- **Formato ORT**: serializzazione del grafo ottimizzato in `.ort` (FP32 e, se supportato, FP16).
+- **OpenVINO IR**: modello convertito in formato OpenVINO (FP32).
 
-## Requirements
+> La conversione in FP16 è possibile ma l'esecuzione con ONNX Runtime può fallire a causa di operatori non supportati.
 
-Install dependencies with:
+## Performance
+Benchmark su CPU con input `640×640`, eseguiti in sequenza su due immagini del folder `dataset/` con `--threads-intra 0` e `--threads-inter 1`.
 
+### Tabella di confronto
+
+| Variante                      | Runtime | Precisione | Median (ms) | p95 (ms) | Dimensione (MB) |
+|-------------------------------|---------|------------|-------------|----------|-----------------|
+| onnx-fp32-cpu                 | Python  | FP32       | 704.90      | 727.85   | 163.53          |
+| onnx-fp32-ort                 | Python  | FP32       | 668.98      | 704.83   | 163.97          |
+| openvino-fp32-cpu             | Python  | FP32       | 430.03      | 447.35   | 83.07           |
+| dotnet-onnx-fp32-cpu          | .NET    | FP32       | 822.09      | 830.62   | 163.53          |
+| dotnet-onnx-fp32-ort          | .NET    | FP32       | 926.53      | 935.15   | 163.97          |
+| dotnet-openvino-fp32-cpu      | .NET    | FP32       | 576.59      | 594.77   | 83.07           |
+
+I valori provengono dai file `summary.json` e `model_info.json` generati durante il benchmark.
+
+### Dove trovare le misurazioni
+Ogni esecuzione salva risultati autoconsistenti in `results/<variant>/run-YYYYMMDD-HHMMSS/` con i seguenti file principali:
+- `timings.csv` – latenza per singola immagine.
+- `summary.json` – statistiche aggregate (media, mediana, p95).
+- `model_info.json` – percorso, dimensione e precisione del modello.
+- `env.json`, `config.json`, `manifest.json`, `logs.txt` – contesto di esecuzione e manifest.
+
+## Conversione e benchmark in ONNX/ORT
+1. **Esportazione in ONNX**
+   ```bash
+   python convert_to_onnx.py --output models/heron-converted.onnx --dataset dataset
+   ```
+2. **Ottimizzazione**
+   ```bash
+   python optimize_onnx.py --input models/heron-converted.onnx --output models/heron-optimized.onnx
+   ```
+3. **Conversione in FP16 (opzionale)**
+   ```bash
+   python scripts/convert_fp16.py
+   ```
+4. **Generazione del formato ORT**
+   ```bash
+   python scripts/convert_to_ort.py
+   ```
+5. **Benchmark**
+   ```bash
+   python scripts/bench_python.py --model models/heron-optimized.onnx \
+     --images ./dataset --variant-name onnx-fp32-cpu \
+     --sequential --threads-intra 0 --threads-inter 1 --target-h 640 --target-w 640
+
+   python scripts/bench_python.py --model models/heron-optimized.ort \
+     --images ./dataset --variant-name onnx-fp32-ort \
+     --sequential --threads-intra 0 --threads-inter 1 --target-h 640 --target-w 640
+   ```
+
+## Conversione e benchmark in OpenVINO
+1. **Conversione a IR**
+   ```bash
+   python scripts/convert_to_openvino.py
+   ```
+2. **Benchmark**
+   ```bash
+   python scripts/bench_openvino.py --model models/heron-converted.xml \
+     --images ./dataset --variant-name openvino-fp32-cpu \
+     --sequential --threads-intra 0 --target-h 640 --target-w 640
+   ```
+
+## Requisiti
+Installare le dipendenze principali:
 ```bash
 pip install -r requirements.txt
 ```
+I file di modello di grandi dimensioni sono salvati nella cartella `models/` e sono esclusi dal versionamento git.
 
-## Usage
+## SDK .NET 8
+La libreria `LayoutSdk` espone un'unica API per eseguire il detector tramite i tre runtime supportati:
+- **ONNX Runtime** (file `.onnx`)
+- **ONNX Runtime** con grafi ottimizzati in formato `.ort`
+- **OpenVINO CSharp API** (modelli IR `.xml`/`.bin`)
 
-The workflow is driven by the `Makefile`:
+### Utilizzo
+```csharp
+using LayoutSdk;
+var sdk = new LayoutSdk(new LayoutSdkOptions(
+    "models/heron-optimized.onnx",
+    "models/heron-optimized.ort",
+    "models/ov-ir/heron-optimized.xml"));
+var result = sdk.Process("dataset/gazette_de_france.jpg", overlay: true, LayoutEngine.Openvino);
+Console.WriteLine($"Detected: {result.Boxes.Count} elements");
+result.OverlayImage?.Encode(SKEncodedImageFormat.Png, 90)
+    .SaveTo(File.OpenWrite("overlay.png"));
+```
+I pacchetti NuGet utilizzati sono le versioni più recenti di `Microsoft.ML.OnnxRuntime`, `OpenVINO.CSharp.API`, `OpenVINO.runtime.ubuntu.24-x86_64` e `SkiaSharp`.
+I test xUnit nella cartella `dotnet/LayoutSdk.Tests` verificano la gestione degli errori e la generazione opzionale degli overlay.
+
+### Benchmark .NET
+L'applicazione console `LayoutSdk.Benchmarks` replica lo script Python generando le stesse cartelle di output:
 
 ```bash
-make convert    # export to ONNX
-make optimize   # graph optimize and optional quantization
-make infer-all  # run inference for baseline and ONNX variants
-make compare    # compute KPIs and generate reports
+dotnet run --project dotnet/LayoutSdk.Benchmarks/LayoutSdk.Benchmarks.csproj -- \
+  --engine Onnx --variant-name dotnet-onnx-fp32-cpu \
+  --images dataset --target-h 640 --target-w 640
+
+dotnet run --project dotnet/LayoutSdk.Benchmarks/LayoutSdk.Benchmarks.csproj -- \
+  --engine Ort --variant-name dotnet-onnx-fp32-ort \
+  --images dataset --target-h 640 --target-w 640
 ```
-
-Results are written to the `results/` directory. Each run creates a timestamped folder containing reports and links to the outputs of each variant.
-
-> The large model and ONNX files are stored in `models/` and ignored by git.
+I risultati vengono salvati in `results/<variant>/run-YYYYMMDD-HHMMSS/` con gli stessi file `summary.json`, `model_info.json` e relativi manifest.

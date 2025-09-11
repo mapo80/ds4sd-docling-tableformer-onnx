@@ -1,4 +1,10 @@
 *.onnx
+*.ort
+*.xml
+*.bin
+*.config
+tmp*/
+models/hf-cache/
 __pycache__/
 dotnet/OrtBench/bin/
 dotnet/OrtBench/obj/
@@ -6,3 +12,11 @@ dotnet/OrtBenchOpenVINO/bin/
 dotnet/OrtBenchOpenVINO/obj/
 dotnet/OVSharpBench/bin/
 dotnet/OVSharpBench/obj/
+dotnet/OrtRunner/bin/
+dotnet/OrtRunner/obj/
+dotnet/LayoutSdk/bin/
+dotnet/LayoutSdk/obj/
+dotnet/LayoutSdk.Tests/bin/
+dotnet/LayoutSdk.Tests/obj/
+dotnet/LayoutSdk.Benchmarks/bin/
+dotnet/LayoutSdk.Benchmarks/obj/

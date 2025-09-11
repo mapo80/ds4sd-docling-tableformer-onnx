@@ -1,168 +1,99 @@
-#!/usr/bin/env python3
-"""Benchmark ONNX Runtime model on a set of images or synthetic data."""
-import argparse
-import csv
-import json
-import logging
-import hashlib
-import os
-import platform
-import statistics
-import sys
-import time
+import argparse, os, time, json, hashlib, platform
 from datetime import datetime
-from pathlib import Path
-from typing import List
-
-import numpy as np
-from PIL import Image
+import numpy as np, cv2
 import onnxruntime as ort
 
+p=argparse.ArgumentParser()
+p.add_argument("--model", required=True)
+p.add_argument("--images", default="./dataset")
+p.add_argument("--variant-name", required=True)
+p.add_argument("--output", default="results")
+p.add_argument("--target-h", type=int, default=1024)
+p.add_argument("--target-w", type=int, default=1024)
+p.add_argument("--warmup", type=int, default=1)
+p.add_argument("--runs-per-image", type=int, default=1)
+p.add_argument("--threads-intra", type=int, default=0)
+p.add_argument("--threads-inter", type=int, default=1)
+p.add_argument("--sequential", action="store_true")
+args=p.parse_args()
 
-def load_image(path: Path, target_h: int, target_w: int) -> np.ndarray:
-    img = Image.open(path).convert("RGB")
-    scale = min(target_w / img.width, target_h / img.height)
-    new_w = int(img.width * scale)
-    new_h = int(img.height * scale)
-    img = img.resize((new_w, new_h))
-    canvas = Image.new("RGB", (target_w, target_h))
-    canvas.paste(img, ((target_w - new_w) // 2, (target_h - new_h) // 2))
-    arr = np.asarray(canvas).transpose(2, 0, 1).astype("float32") / 255.0
-    return arr[np.newaxis, :]
+ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+run_dir = os.path.join(args.output, args.variant_name, f"run-{ts}")
+os.makedirs(run_dir, exist_ok=True)
 
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+if args.sequential: so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+so.intra_op_num_threads = args.threads_intra
+so.inter_op_num_threads = args.threads_inter
+sess = ort.InferenceSession(args.model, so, providers=["CPUExecutionProvider"])
+inputs = sess.get_inputs()
+inp_name = inputs[0].name
+N,C,H,W = 1,3,args.target_h,args.target_w
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
+def load_and_prep(pth):
+    im = cv2.imread(pth, cv2.IMREAD_COLOR)
+    if im is None: return None
+    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+    im = cv2.resize(im, (W,H), interpolation=cv2.INTER_AREA)
+    arr = (im.astype(np.float32)/255.0).transpose(2,0,1)[None, ...]  # NCHW
+    return arr
 
+# immagini
+files = [os.path.join(args.images,f) for f in os.listdir(args.images) if f.lower().endswith((".jpg",".jpeg",".png",".bmp",".tif",".tiff"))]
+files.sort()
+timings=[]
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--images")
-    parser.add_argument("--synthetic", action="store_true")
-    parser.add_argument("--variant-name", required=True)
-    parser.add_argument("--output", default="results")
-    parser.add_argument("--target-h", type=int)
-    parser.add_argument("--target-w", type=int)
-    parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument("--runs-per-image", type=int, default=1)
-    parser.add_argument("--threads-intra", type=int, default=0)
-    parser.add_argument("--threads-inter", type=int, default=1)
-    parser.add_argument("--sequential", action="store_true")
-    parser.add_argument("--execution-provider", choices=["CPU", "OpenVINO"], default="CPU")
-    parser.add_argument("--openvino-device", default="CPU_FP32")
-    args = parser.parse_args()
+# warmup
+dummy = np.zeros((N,C,H,W), dtype=np.float32)
+for _ in range(max(1,args.warmup)):
+    sess.run(None, {inp_name: dummy})
 
-    if not args.images and not args.synthetic:
-        parser.error("either --images or --synthetic required")
+# misure
+import csv, time
+with open(os.path.join(run_dir,"timings.csv"),"w",newline="") as f:
+    w=csv.writer(f); w.writerow(["filename","ms"])
+    for pth in (files or ["__synthetic__"]):
+        x = load_and_prep(pth) if pth!="__synthetic__" else dummy
+        for _ in range(args.runs_per_image):
+            t0=time.perf_counter(); sess.run(None, {inp_name: x}); dt=(time.perf_counter()-t0)*1000
+            w.writerow([os.path.basename(pth), f"{dt:.3f}"]); timings.append(dt)
 
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    variant = args.variant_name
-    ep = "CPU"
-    device = "CPU"
-    providers = ["CPUExecutionProvider"]
-    if args.execution_provider.lower() == "openvino":
-        providers = [("OpenVINOExecutionProvider", {"device_type": args.openvino_device})]
-        ep = "OpenVINO"
-        device = args.openvino_device
-        variant += "-ov"
-    run_dir = Path(args.output) / variant / f"run-{ts}"
-    run_dir.mkdir(parents=True, exist_ok=False)
+import numpy as np, statistics as st
+summary = {
+  "count": len(timings),
+  "mean_ms": float(np.mean(timings)) if timings else None,
+  "median_ms": float(np.median(timings)) if timings else None,
+  "p95_ms": float(np.quantile(timings,0.95)) if timings else None
+}
+json.dump(summary, open(os.path.join(run_dir,"summary.json"),"w"), indent=2)
 
-    logger = logging.getLogger("bench")
-    logger.setLevel(logging.INFO)
-    fh = logging.FileHandler(run_dir / "logs.txt")
-    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger.addHandler(fh)
-    logger.info("starting benchmark")
+mi = {
+  "model_path": args.model,
+  "model_size_bytes": os.path.getsize(args.model),
+  "ep": "CPU", "device": "CPU",
+  "precision": "fp16" if "fp16" in os.path.basename(args.model).lower() else "fp32"
+}
+json.dump(mi, open(os.path.join(run_dir,"model_info.json"),"w"), indent=2)
 
-    so = ort.SessionOptions()
-    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL if args.sequential else ort.ExecutionMode.ORT_PARALLEL
-    if args.threads_intra > 0:
-        so.intra_op_num_threads = args.threads_intra
-    if args.threads_inter > 0:
-        so.inter_op_num_threads = args.threads_inter
+env = {
+  "python": platform.python_version(),
+  "onnxruntime": ort.__version__,
+  "os": platform.platform(),
+}
+json.dump(env, open(os.path.join(run_dir,"env.json"),"w"), indent=2)
 
-    session = ort.InferenceSession(args.model, sess_options=so, providers=providers)
-    input_meta = session.get_inputs()[0]
-    shape = list(input_meta.shape)
-    h = shape[2] if len(shape) >= 4 and shape[2] not in (None, -1) else args.target_h
-    w = shape[3] if len(shape) >= 4 and shape[3] not in (None, -1) else args.target_w
-    if h is None or w is None:
-        raise ValueError("target-h and target-w required when model has dynamic spatial dimensions")
-    input_name = input_meta.name
+cfg = vars(args)
+json.dump(cfg, open(os.path.join(run_dir,"config.json"),"w"), indent=2)
 
-    timings: List[float] = []
-    csv_path = run_dir / "timings.csv"
-    with csv_path.open("w", newline="") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["filename", "ms"])
-        if args.synthetic:
-            images = ["synthetic"]
-        else:
-            img_dir = Path(args.images)
-            images = []
-            for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]:
-                images.extend(sorted(img_dir.glob(ext)))
-        for img in images:
-            if args.synthetic:
-                tensor = np.random.rand(1, 3, h, w).astype("float32")
-                fname = "synthetic"
-            else:
-                tensor = load_image(Path(img), h, w)
-                fname = Path(img).name
-            for _ in range(args.warmup):
-                session.run(None, {input_name: tensor})
-            start = time.perf_counter()
-            for _ in range(args.runs_per_image):
-                session.run(None, {input_name: tensor})
-            dt = (time.perf_counter() - start) * 1000 / max(1, args.runs_per_image)
-            writer.writerow([fname, f"{dt:.3f}"])
-            timings.append(dt)
-            logger.info("%s %.3f ms", fname, dt)
+import hashlib, glob
+def sha(p): 
+    h=hashlib.sha256(); h.update(open(p,"rb").read()); return h.hexdigest()
+manifest=[]
+for pth in ["timings.csv","summary.json","model_info.json","env.json","config.json"]:
+    q=os.path.join(run_dir,pth); 
+    if os.path.exists(q): manifest.append({"file":pth,"sha256":sha(q)})
+json.dump({"files":manifest}, open(os.path.join(run_dir,"manifest.json"),"w"), indent=2)
+open(os.path.join(run_dir,"logs.txt"),"w").write(f"RUN {args.variant_name} ok, N={summary['count']}\n")
+print("OK:", run_dir)
 
-    summary = {
-        "count": len(timings),
-        "mean_ms": statistics.mean(timings) if timings else 0.0,
-        "median_ms": statistics.median(timings) if timings else 0.0,
-        "p95_ms": (np.percentile(timings, 95).item() if timings else 0.0),
-    }
-    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
-
-    precision = "int8" if "int8" in Path(args.model).name.lower() or "int8" in args.variant_name.lower() else "fp32"
-    model_info = {
-        "model_path": str(Path(args.model).resolve()),
-        "model_size_bytes": Path(args.model).stat().st_size,
-        "ep": ep,
-        "device": device,
-        "precision": precision,
-    }
-    (run_dir / "model_info.json").write_text(json.dumps(model_info, indent=2))
-
-    env = {
-        "python": sys.version.split()[0],
-        "dotnet": None,
-        "ort": ort.__version__,
-        "os": platform.platform(),
-        "cpu": platform.processor() or platform.machine(),
-    }
-    (run_dir / "env.json").write_text(json.dumps(env, indent=2))
-
-    (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2))
-
-    logging.shutdown()
-    manifest = {}
-    for p in sorted(run_dir.glob("*")):
-        if p.name == "manifest.json":
-            continue
-        manifest[p.name] = sha256_file(p)
-    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-
-
-if __name__ == "__main__":
-    main()
