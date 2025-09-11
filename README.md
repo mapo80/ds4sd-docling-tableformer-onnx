@@ -38,6 +38,17 @@ Ogni esecuzione salva risultati autoconsistenti in `results/<variant>/run-YYYYMM
 - `model_info.json` – percorso, dimensione e precisione del modello.
 - `env.json`, `config.json`, `manifest.json`, `logs.txt` – contesto di esecuzione e manifest.
 
+## Benchmark su DocLayNet
+L'intero set di 20 immagini estratte da `icdar2023-doclaynet.parquet` è stato utilizzato per valutare le tre varianti principali del modello.
+OpenVINO risulta il runtime più rapido, con una latenza mediana di ~430 ms e un throughput di oltre 2 immagini al secondo, mantenendo al contempo una dimensione del modello dimezzata rispetto alle versioni ONNX/ORT.
+Le varianti ONNX e ORT mostrano prestazioni simili (mediana ~590 ms), ma ORT evidenzia una maggiore variabilità. OpenVINO rileva 3 box in meno rispetto agli altri due, un differenziale di ~0,3 % sul totale delle bounding box.
+
+| Runtime | Model MB | Images | Boxes | Boxes/img | Mean ms | Median ms | P95 ms | Min ms | Max ms | Std ms | Img/s | Boxes/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| onnx-fp32-cpu | 163.53 | 20 | 1046 | 52.30 | 593.10 | 590.10 | 656.92 | 522.15 | 752.97 | 64.25 | 1.69 | 88.18 |
+| onnx-fp32-ort | 163.97 | 20 | 1046 | 52.30 | 603.14 | 592.92 | 711.99 | 514.61 | 957.76 | 104.70 | 1.66 | 86.71 |
+| openvino-fp32-cpu | 83.03 | 20 | 1043 | 52.15 | 492.24 | 430.02 | 713.12 | 392.06 | 1183.23 | 165.96 | 2.03 | 105.94 |
+
 ## Conversione e benchmark in ONNX/ORT
 1. **Esportazione in ONNX**
    ```bash
