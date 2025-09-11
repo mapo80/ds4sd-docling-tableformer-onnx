@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark ONNX Runtime model on a set of images or synthetic data."""
+"""Benchmark ONNX Runtime OpenVINO model on a set of images or synthetic data."""
 import argparse
 import csv
 import json
@@ -19,7 +19,7 @@ from PIL import Image
 import onnxruntime as ort
 
 
-def load_image(path: Path, target_h: int, target_w: int) -> np.ndarray:
+def load_image(path: Path, target_h: int, target_w: int, dtype=np.float32) -> np.ndarray:
     img = Image.open(path).convert("RGB")
     scale = min(target_w / img.width, target_h / img.height)
     new_w = int(img.width * scale)
@@ -27,7 +27,11 @@ def load_image(path: Path, target_h: int, target_w: int) -> np.ndarray:
     img = img.resize((new_w, new_h))
     canvas = Image.new("RGB", (target_w, target_h))
     canvas.paste(img, ((target_w - new_w) // 2, (target_h - new_h) // 2))
-    arr = np.asarray(canvas).transpose(2, 0, 1).astype("float32") / 255.0
+    arr = np.asarray(canvas).transpose(2, 0, 1)
+    if dtype == np.float32:
+        arr = arr.astype("float32") / 255.0
+    else:
+        arr = arr.astype("int8")
     return arr[np.newaxis, :]
 
 
@@ -53,23 +57,17 @@ def main() -> None:
     parser.add_argument("--threads-intra", type=int, default=0)
     parser.add_argument("--threads-inter", type=int, default=1)
     parser.add_argument("--sequential", action="store_true")
-    parser.add_argument("--execution-provider", choices=["CPU", "OpenVINO"], default="CPU")
-    parser.add_argument("--openvino-device", default="CPU_FP32")
+    parser.add_argument("--device", default="CPU_FP32")
     args = parser.parse_args()
 
     if not args.images and not args.synthetic:
         parser.error("either --images or --synthetic required")
 
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    variant = args.variant_name
-    ep = "CPU"
-    device = "CPU"
-    providers = ["CPUExecutionProvider"]
-    if args.execution_provider.lower() == "openvino":
-        providers = [("OpenVINOExecutionProvider", {"device_type": args.openvino_device})]
-        ep = "OpenVINO"
-        device = args.openvino_device
-        variant += "-ov"
+    variant = args.variant_name + "-ov"
+    ep = "OpenVINO"
+    device = args.device
+    providers = [("OpenVINOExecutionProvider", {"device_type": args.device})]
     run_dir = Path(args.output) / variant / f"run-{ts}"
     run_dir.mkdir(parents=True, exist_ok=False)
 
@@ -96,6 +94,7 @@ def main() -> None:
     if h is None or w is None:
         raise ValueError("target-h and target-w required when model has dynamic spatial dimensions")
     input_name = input_meta.name
+    dtype = np.float32 if input_meta.type == "tensor(float)" else np.int8
 
     timings: List[float] = []
     csv_path = run_dir / "timings.csv"
@@ -111,10 +110,10 @@ def main() -> None:
                 images.extend(sorted(img_dir.glob(ext)))
         for img in images:
             if args.synthetic:
-                tensor = np.random.rand(1, 3, h, w).astype("float32")
+                tensor = np.random.rand(1, 3, h, w).astype("float32") if dtype == np.float32 else np.random.randint(-128, 128, size=(1,3,h,w), dtype=np.int8)
                 fname = "synthetic"
             else:
-                tensor = load_image(Path(img), h, w)
+                tensor = load_image(Path(img), h, w, dtype)
                 fname = Path(img).name
             for _ in range(args.warmup):
                 session.run(None, {input_name: tensor})

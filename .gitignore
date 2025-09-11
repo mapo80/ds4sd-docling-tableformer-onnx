@@ -1,3 +1,8 @@
-models/
 *.onnx
 __pycache__/
+dotnet/OrtBench/bin/
+dotnet/OrtBench/obj/
+dotnet/OrtBenchOpenVINO/bin/
+dotnet/OrtBenchOpenVINO/obj/
+dotnet/OVSharpBench/bin/
+dotnet/OVSharpBench/obj/
