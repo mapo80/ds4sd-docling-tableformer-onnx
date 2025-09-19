@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\LayoutSdk\LayoutSdk.csproj" />
+    <ProjectReference Include="..\TableFormerSdk\TableFormerSdk.csproj" />
     <PackageReference Include="OpenVINO.runtime.ubuntu.24-x86_64" Version="2024.4.0.1" />
   </ItemGroup>
 

@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Collections.Generic;
 using System.Linq;
-using LayoutSdk;
+using TableFormerSdk;
 using SkiaSharp;
 
 static Dictionary<string,string> ParseArgs(string[] args)
@@ -46,7 +46,8 @@ if (!par.TryGetValue("--engine", out var engStr))
     Console.Error.WriteLine("--engine is required");
     return;
 }
-var engine = Enum.Parse<LayoutEngine>(engStr, true);
+var engine = Enum.Parse<TableFormerRuntime>(engStr, true);
+var variantEnum = Enum.Parse<TableFormerModelVariant>(variant, true);
 string images = par.GetValueOrDefault("--images", "./dataset");
 string output = par.GetValueOrDefault("--output", "results");
 int warmup = int.Parse(par.GetValueOrDefault("--warmup", "1"));
@@ -58,11 +59,10 @@ var ts = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 var runDir = Path.Combine(output, variant, $"run-{ts}");
 Directory.CreateDirectory(runDir);
 
-var options = new LayoutSdkOptions(
-    "models/heron-optimized.onnx",
-    "models/heron-optimized.ort",
-    "models/ov-ir/heron-optimized.xml");
-using var sdk = new LayoutSdk.LayoutSdk(options);
+var options = new TableFormerSdkOptions(new TableFormerModelPaths(
+    "models/tableformer-fast.onnx",
+    "models/tableformer-accurate.onnx"));
+using var sdk = new TableFormerSdk.TableFormerSdk(options);
 
 // gather image files
 var files = Directory.Exists(images)
@@ -90,7 +90,7 @@ if (files.Count==0)
 // warmup
 var warmPath = ResizeToTemp(files[0], targetW, targetH);
 for (int i=0;i<warmup;i++)
-    sdk.Process(warmPath, false, engine);
+    sdk.Process(warmPath, false, engine, variantEnum);
 
 var timings = new List<double>();
 using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
@@ -102,7 +102,7 @@ using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
         for (int r=0;r<runsPerImage;r++)
         {
             var sw = Stopwatch.StartNew();
-            sdk.Process(prepPath, false, engine);
+            sdk.Process(prepPath, false, engine, variantEnum);
             sw.Stop();
             var ms = sw.Elapsed.TotalMilliseconds;
             csv.WriteLine($"{Path.GetFileName(file)},{ms:F3}");
@@ -128,12 +128,7 @@ var summary = new {
 };
 File.WriteAllText(Path.Combine(runDir,"summary.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions{WriteIndented=true}));
 
-string modelPath = engine switch {
-    LayoutEngine.Onnx => options.OnnxModelPath,
-    LayoutEngine.Ort => options.OrtModelPath,
-    LayoutEngine.Openvino => options.OpenVinoModelPath,
-    _ => ""
-};
+string modelPath = options.Onnx.GetModelPath(variantEnum);
 var modelInfo = new {
     model_path = modelPath,
     model_size_bytes = File.Exists(modelPath) ? new FileInfo(modelPath).Length : 0,

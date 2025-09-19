@@ -1,6 +1,6 @@
 # ONNX Runtime + .NET Optimization
 
-This project demonstrates dynamic INT8 quantization and .NET inference for `ds4sd/docling-layout-heron`.
+This project demonstrates dynamic INT8 quantization and .NET inference for the TableFormer models (`fast` and `accurate`).
 
 ## Setup
 

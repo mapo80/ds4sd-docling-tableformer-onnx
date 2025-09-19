@@ -1,18 +1,21 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
 
-namespace LayoutSdk;
+namespace TableFormerSdk;
 
-internal sealed class OnnxRuntimeBackend : ILayoutBackend, IDisposable
+internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
 {
     private readonly InferenceSession _session;
     private readonly string _inputName;
 
-    public OnnxRuntimeBackend(string modelPath)
+    public TableFormerOnnxBackend(string modelPath)
     {
+        if (string.IsNullOrWhiteSpace(modelPath))
+            throw new ArgumentException("Model path is empty", nameof(modelPath));
+
         var opts = new SessionOptions
         {
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
@@ -25,14 +28,14 @@ internal sealed class OnnxRuntimeBackend : ILayoutBackend, IDisposable
         _inputName = _session.InputMetadata.Keys.First();
     }
 
-    public IReadOnlyList<BoundingBox> Infer(SKBitmap image)
+    public IReadOnlyList<TableRegion> Infer(SKBitmap image, string sourcePath)
     {
         var tensor = Preprocess(image);
         var input = NamedOnnxValue.CreateFromTensor(_inputName, tensor);
         using var results = _session.Run(new[] { input });
         (input as IDisposable)?.Dispose();
-        // TODO: parse outputs into BoundingBox list
-        return new List<BoundingBox>();
+        // TODO: parse outputs into table structure regions.
+        return new List<TableRegion>();
     }
 
     private static DenseTensor<float> Preprocess(SKBitmap bmp)

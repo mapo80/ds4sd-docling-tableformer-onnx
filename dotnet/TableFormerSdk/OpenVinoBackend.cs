@@ -5,9 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 
-namespace LayoutSdk;
+namespace TableFormerSdk;
 
-internal sealed class OpenVinoBackend : ILayoutBackend, IDisposable
+internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
 {
     private readonly Core _core;
     private readonly Model _model;
@@ -47,7 +47,7 @@ internal sealed class OpenVinoBackend : ILayoutBackend, IDisposable
         _inputName = _model.inputs()[0].get_any_name();
     }
 
-    public IReadOnlyList<BoundingBox> Infer(SKBitmap image)
+    public IReadOnlyList<TableRegion> Infer(SKBitmap image, string sourcePath)
     {
         int w = image.Width;
         int h = image.Height;
@@ -66,7 +66,7 @@ internal sealed class OpenVinoBackend : ILayoutBackend, IDisposable
         using var tensor = new Tensor(new Shape(new long[] { 1, 3, h, w }), data);
         _request.set_tensor(_inputName, tensor);
         _request.infer();
-        return new List<BoundingBox>();
+        return new List<TableRegion>();
     }
 
     public void Dispose()

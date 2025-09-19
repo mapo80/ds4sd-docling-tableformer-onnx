@@ -14,9 +14,11 @@ dotnet/OVSharpBench/bin/
 dotnet/OVSharpBench/obj/
 dotnet/OrtRunner/bin/
 dotnet/OrtRunner/obj/
-dotnet/LayoutSdk/bin/
-dotnet/LayoutSdk/obj/
-dotnet/LayoutSdk.Tests/bin/
-dotnet/LayoutSdk.Tests/obj/
-dotnet/LayoutSdk.Benchmarks/bin/
-dotnet/LayoutSdk.Benchmarks/obj/
+dotnet/TableFormerSdk/bin/
+dotnet/TableFormerSdk/obj/
+dotnet/TableFormerSdk.Tests/bin/
+dotnet/TableFormerSdk.Tests/obj/
+dotnet/TableFormerSdk.Benchmarks/bin/
+dotnet/TableFormerSdk.Benchmarks/obj/
+dotnet/TableFormerSdk.Samples/bin/
+dotnet/TableFormerSdk.Samples/obj/

@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\LayoutSdk\LayoutSdk.csproj" />
+    <ProjectReference Include="..\TableFormerSdk\TableFormerSdk.csproj" />
   </ItemGroup>
 
 </Project>
