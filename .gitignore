@@ -3,6 +3,7 @@
 *.xml
 *.bin
 *.config
+*.zip
 tmp*/
 models/hf-cache/
 __pycache__/

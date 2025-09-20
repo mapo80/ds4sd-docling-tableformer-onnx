@@ -185,3 +185,50 @@ Installare le dipendenze principali:
 pip install -r requirements.txt
 ```
 I modelli di grandi dimensioni vengono salvati nella cartella `models/` ed esclusi dal versionamento git.
+
+## Pacchetto NuGet con i modelli ufficiali
+
+La libreria `TableFormerSdk` è pubblicata come pacchetto NuGet (`TableFormerSdk` versione `1.0.0`) allegato alla release [v1.0.0](https://github.com/mapo80/ds4sd-docling-tableformer-onnx/releases/tag/v1.0.0). Il `.nupkg` contiene **tutti** gli artifact distribuiti nella release (encoder, decoder e bbox decoder per le varianti *fast* e *accurate*, sia ONNX sia OpenVINO) all'interno di `contentFiles/any/any/models/`.
+
+### Download degli asset della release
+
+```bash
+export GITHUB_TOKEN=<token_con_permessi_repo>
+python scripts/download_release_assets.py \
+  --repo mapo80/ds4sd-docling-tableformer-onnx \
+  --tag v1.0.0 \
+  --output dotnet/TableFormerSdk/ReleaseModels \
+  --skip-existing
+```
+
+Lo script verifica dimensione e integrità dei file, salvandoli in `dotnet/TableFormerSdk/ReleaseModels` (cartella ignorata da Git ma confezionata durante il `dotnet pack`).
+
+### Creazione del pacchetto
+
+```bash
+dotnet pack dotnet/TableFormerSdk/TableFormerSdk.csproj -c Release
+```
+
+L'output viene salvato in `artifacts/nuget/TableFormerSdk.1.0.0.nupkg`.
+
+### Pubblicazione sulla release GitHub
+
+```bash
+curl -H "Authorization: token $GITHUB_TOKEN" \
+     -H "Content-Type: application/octet-stream" \
+     --data-binary @artifacts/nuget/TableFormerSdk.1.0.0.nupkg \
+     "https://uploads.github.com/repos/mapo80/ds4sd-docling-tableformer-onnx/releases/248661306/assets?name=TableFormerSdk.1.0.0.nupkg"
+```
+
+### Progetto di esempio
+
+Il progetto `dotnet/TableFormerSdk.ReleaseSample` utilizza il pacchetto locale per verificare la disponibilità dei modelli senza download aggiuntivi:
+
+```bash
+dotnet add dotnet/TableFormerSdk.ReleaseSample/TableFormerSdk.ReleaseSample.csproj \
+  package TableFormerSdk --version 1.0.0 --source artifacts/nuget
+
+dotnet run --project dotnet/TableFormerSdk.ReleaseSample/TableFormerSdk.ReleaseSample.csproj
+```
+
+L'output elenca i modelli disponibili per ogni runtime, confermando che i file sono già inclusi nel pacchetto NuGet.

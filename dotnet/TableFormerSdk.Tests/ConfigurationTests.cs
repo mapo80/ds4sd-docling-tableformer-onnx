@@ -33,37 +33,44 @@ public class ConfigurationTests
     public void ReleaseModelCatalog_ReportsAvailabilityBasedOnArtifacts()
     {
         var directory = CreateTempDirectory();
-        File.WriteAllBytes(Path.Combine(directory, "heron-optimized.onnx"), Array.Empty<byte>());
-        Directory.CreateDirectory(Path.Combine(directory, "ov-ir-fp16"));
-        var xmlPath = Path.Combine(directory, "ov-ir-fp16", "heron-optimized.xml");
-        File.WriteAllBytes(xmlPath, Array.Empty<byte>());
-        var binPath = Path.ChangeExtension(xmlPath, ".bin");
-        File.WriteAllBytes(binPath!, Array.Empty<byte>());
+        File.WriteAllBytes(Path.Combine(directory, "tableformer-fast-encoder.onnx"), Array.Empty<byte>());
+        File.WriteAllBytes(Path.Combine(directory, "tableformer-accurate-encoder.onnx"), Array.Empty<byte>());
+
+        var fastXmlPath = Path.Combine(directory, "tableformer-fast-encoder.xml");
+        File.WriteAllBytes(fastXmlPath, Array.Empty<byte>());
+        var fastBinPath = Path.ChangeExtension(fastXmlPath, ".bin");
+        File.WriteAllBytes(fastBinPath!, Array.Empty<byte>());
+
+        var accurateXmlPath = Path.Combine(directory, "tableformer-accurate-encoder.xml");
+        File.WriteAllBytes(accurateXmlPath, Array.Empty<byte>());
+        var accurateBinPath = Path.ChangeExtension(accurateXmlPath, ".bin");
+        File.WriteAllBytes(accurateBinPath!, Array.Empty<byte>());
 
         var catalog = new ReleaseModelCatalog(directory);
 
         Assert.True(catalog.SupportsRuntime(TableFormerRuntime.Onnx));
         Assert.True(catalog.SupportsVariant(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast));
+        Assert.True(catalog.SupportsVariant(TableFormerRuntime.Onnx, TableFormerModelVariant.Accurate));
         Assert.True(catalog.SupportsRuntime(TableFormerRuntime.OpenVino));
+        Assert.True(catalog.SupportsVariant(TableFormerRuntime.OpenVino, TableFormerModelVariant.Accurate));
 
-        var artifact = catalog.GetArtifact(TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast);
-        Assert.Equal(xmlPath, artifact.ModelPath);
-        Assert.Equal(binPath, artifact.WeightsPath);
+        var artifact = catalog.GetArtifact(TableFormerRuntime.OpenVino, TableFormerModelVariant.Accurate);
+        Assert.Equal(accurateXmlPath, artifact.ModelPath);
+        Assert.Equal(accurateBinPath, artifact.WeightsPath);
     }
 
     [Fact]
     public void ReleaseModelCatalog_MissingWeights_Throws()
     {
         var directory = CreateTempDirectory();
-        File.WriteAllBytes(Path.Combine(directory, "heron-optimized.ort"), Array.Empty<byte>());
-        Directory.CreateDirectory(Path.Combine(directory, "ov-ir-fp16"));
-        var xmlPath = Path.Combine(directory, "ov-ir-fp16", "heron-optimized.xml");
+        File.WriteAllBytes(Path.Combine(directory, "tableformer-fast-encoder.onnx"), Array.Empty<byte>());
+        var xmlPath = Path.Combine(directory, "tableformer-fast-encoder.xml");
         File.WriteAllBytes(xmlPath, Array.Empty<byte>());
 
         var catalog = new ReleaseModelCatalog(directory);
 
-        Assert.True(catalog.SupportsRuntime(TableFormerRuntime.Ort));
-        Assert.False(catalog.SupportsRuntime(TableFormerRuntime.OpenVino));
+        Assert.True(catalog.SupportsRuntime(TableFormerRuntime.Onnx));
+        Assert.False(catalog.SupportsVariant(TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast));
         Assert.Throws<FileNotFoundException>(() => catalog.GetArtifact(TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast));
     }
 
