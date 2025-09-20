@@ -14,15 +14,13 @@ public sealed class ReleaseModelCatalog : ITableFormerModelCatalog
         {
             [TableFormerRuntime.Onnx] = new ReadOnlyDictionary<TableFormerModelVariant, string>(new Dictionary<TableFormerModelVariant, string>
             {
-                [TableFormerModelVariant.Fast] = "heron-optimized.onnx"
-            }),
-            [TableFormerRuntime.Ort] = new ReadOnlyDictionary<TableFormerModelVariant, string>(new Dictionary<TableFormerModelVariant, string>
-            {
-                [TableFormerModelVariant.Fast] = "heron-optimized.ort"
+                [TableFormerModelVariant.Fast] = "tableformer-fast-encoder.onnx",
+                [TableFormerModelVariant.Accurate] = "tableformer-accurate-encoder.onnx"
             }),
             [TableFormerRuntime.OpenVino] = new ReadOnlyDictionary<TableFormerModelVariant, string>(new Dictionary<TableFormerModelVariant, string>
             {
-                [TableFormerModelVariant.Fast] = Path.Combine("ov-ir-fp16", "heron-optimized.xml")
+                [TableFormerModelVariant.Fast] = "tableformer-fast-encoder.xml",
+                [TableFormerModelVariant.Accurate] = "tableformer-accurate-encoder.xml"
             })
         });
 

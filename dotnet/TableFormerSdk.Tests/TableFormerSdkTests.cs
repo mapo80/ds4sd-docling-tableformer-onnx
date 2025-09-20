@@ -143,7 +143,7 @@ public class TableFormerSdkTests
     [Fact]
     public void Process_AutoRuntime_ExploresAndSelectsFastestBackend()
     {
-        var performanceOptions = new TableFormerPerformanceOptions(minimumSamples: 1, slidingWindowSize: 8, runtimePriority: new[] { TableFormerRuntime.OpenVino, TableFormerRuntime.Onnx });
+        var performanceOptions = new TableFormerPerformanceOptions(minimumSamples: 1, slidingWindowSize: 8, runtimePriority: new[] { TableFormerRuntime.Onnx, TableFormerRuntime.OpenVino });
         var sdk = CreateSdkWithFakeBackend(performanceOptions, includeOpenVino: true);
 
         var onnxBackend = new FakeBackend(TimeSpan.FromMilliseconds(15));

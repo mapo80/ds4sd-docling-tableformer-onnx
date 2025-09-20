@@ -4,6 +4,17 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>TableFormerSdk</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Docling Engineering</Authors>
+    <Company>Docling Engineering</Company>
+    <Description>.NET SDK for running Docling TableFormer models with ONNX Runtime and OpenVINO.</Description>
+    <RepositoryUrl>https://github.com/mapo80/ds4sd-docling-tableformer-onnx</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/mapo80/ds4sd-docling-tableformer-onnx</PackageProjectUrl>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageOutputPath>../../artifacts/nuget</PackageOutputPath>
+    <IncludeSymbols>false</IncludeSymbols>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +23,15 @@
     <PackageReference Include="OpenVINO.runtime.ubuntu.24-x86_64" Version="2024.4.0.1" />
     <PackageReference Include="SkiaSharp" Version="3.119.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="ReleaseModels/**/*">
+      <Pack>true</Pack>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+      <PackagePath>contentFiles/any/any/models/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
