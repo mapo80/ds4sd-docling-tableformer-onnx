@@ -1,0 +1,9 @@
+{
+  "model_path": "models/heron-optimized.onnx",
+  "model_size_bytes": 1158,
+  "weights_path": null,
+  "weights_size_bytes": 0,
+  "ep": "ONNX Runtime",
+  "device": "CPU",
+  "precision": "fp32"
+}

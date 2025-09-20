@@ -1,7 +1,8 @@
 using SkiaSharp;
 using System.Collections.Generic;
+using TableFormerSdk.Models;
 
-namespace TableFormerSdk;
+namespace TableFormerSdk.Backends;
 
 public interface ITableFormerBackend
 {

@@ -1,10 +1,11 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Collections.Generic;
 using System.Linq;
 using TableFormerSdk;
+using TableFormerSdk.Configuration;
+using TableFormerSdk.Enums;
 using SkiaSharp;
 
 static Dictionary<string,string> ParseArgs(string[] args)
@@ -26,7 +27,8 @@ static Dictionary<string,string> ParseArgs(string[] args)
 static string ResizeToTemp(string path, int w, int h)
 {
     using var bmp = SKBitmap.Decode(path);
-    using var resized = bmp.Resize(new SKImageInfo(w, h), SKFilterQuality.High);
+    var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+    using var resized = bmp.Resize(new SKImageInfo(w, h), sampling);
     var tmp = Path.GetTempFileName() + ".png";
     using var img = SKImage.FromBitmap(resized);
     using var data = img.Encode(SKEncodedImageFormat.Png, 90);
@@ -59,9 +61,19 @@ var ts = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 var runDir = Path.Combine(output, variant, $"run-{ts}");
 Directory.CreateDirectory(runDir);
 
-var options = new TableFormerSdkOptions(new TableFormerModelPaths(
-    "models/tableformer-fast.onnx",
-    "models/tableformer-accurate.onnx"));
+if (!par.TryGetValue("--onnx-fast", out var onnxFast))
+{
+    Console.Error.WriteLine("--onnx-fast is required");
+    return;
+}
+
+par.TryGetValue("--onnx-accurate", out var onnxAccurate);
+par.TryGetValue("--openvino-fast", out var openvinoFast);
+par.TryGetValue("--openvino-accurate", out var openvinoAccurate);
+
+var options = new TableFormerSdkOptions(
+    new TableFormerModelPaths(onnxFast, onnxAccurate),
+    openvinoFast is not null ? new OpenVinoModelPaths(openvinoFast, openvinoAccurate) : null);
 using var sdk = new TableFormerSdk.TableFormerSdk(options);
 
 // gather image files
@@ -95,17 +107,15 @@ for (int i=0;i<warmup;i++)
 var timings = new List<double>();
 using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
 {
-    csv.WriteLine("filename,ms");
+    csv.WriteLine("filename,runtime,ms");
     foreach (var file in files)
     {
         var prepPath = ResizeToTemp(file, targetW, targetH);
         for (int r=0;r<runsPerImage;r++)
         {
-            var sw = Stopwatch.StartNew();
-            sdk.Process(prepPath, false, engine, variantEnum);
-            sw.Stop();
-            var ms = sw.Elapsed.TotalMilliseconds;
-            csv.WriteLine($"{Path.GetFileName(file)},{ms:F3}");
+            var result = sdk.Process(prepPath, false, engine, variantEnum);
+            var ms = result.InferenceTime.TotalMilliseconds;
+            csv.WriteLine($"{Path.GetFileName(file)},{result.Runtime},{ms:F3}");
             timings.Add(ms);
         }
     }
@@ -128,11 +138,37 @@ var summary = new {
 };
 File.WriteAllText(Path.Combine(runDir,"summary.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions{WriteIndented=true}));
 
-string modelPath = options.Onnx.GetModelPath(variantEnum);
+string modelPath;
+string? weightsPath = null;
+string executionProvider;
+
+switch (engine)
+{
+    case TableFormerRuntime.Onnx:
+        modelPath = options.Onnx.GetModelPath(variantEnum);
+        executionProvider = "ONNX Runtime";
+        break;
+    case TableFormerRuntime.OpenVino:
+        if (options.OpenVino is null)
+        {
+            throw new InvalidOperationException("OpenVINO paths are not configured");
+        }
+
+        var paths = options.OpenVino.GetModelPaths(variantEnum);
+        modelPath = paths.Xml;
+        weightsPath = paths.Weights;
+        executionProvider = "OpenVINO";
+        break;
+    default:
+        throw new NotSupportedException($"Benchmark engine {engine} is not supported");
+}
+
 var modelInfo = new {
     model_path = modelPath,
     model_size_bytes = File.Exists(modelPath) ? new FileInfo(modelPath).Length : 0,
-    ep = "CPU",
+    weights_path = weightsPath,
+    weights_size_bytes = weightsPath is not null && File.Exists(weightsPath) ? new FileInfo(weightsPath).Length : 0,
+    ep = executionProvider,
     device = "CPU",
     precision = modelPath.ToLowerInvariant().Contains("fp16")?"fp16":"fp32"
 };
