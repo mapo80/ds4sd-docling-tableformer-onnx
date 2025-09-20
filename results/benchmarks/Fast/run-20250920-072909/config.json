@@ -1,0 +1,9 @@
+{
+  "engine": "Ort",
+  "images": "dataset/FinTabNet/benchmark",
+  "variant": "Fast",
+  "warmup": 1,
+  "runs_per_image": 5,
+  "target_h": 448,
+  "target_w": 448
+}

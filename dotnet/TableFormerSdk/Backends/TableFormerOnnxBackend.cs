@@ -3,6 +3,7 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using TableFormerSdk.Models;
 
@@ -10,45 +11,46 @@ namespace TableFormerSdk.Backends;
 
 internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
 {
-    private readonly InferenceSession _session;
-    private readonly string _inputName;
+    private readonly IOnnxSessionAdapter _session;
 
     public TableFormerOnnxBackend(string modelPath)
+        : this(new InferenceSessionAdapter(modelPath))
     {
-        if (string.IsNullOrWhiteSpace(modelPath))
-        {
-            throw new ArgumentException("Model path is empty", nameof(modelPath));
-        }
+    }
 
-        var options = new SessionOptions
-        {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-            IntraOpNumThreads = 0,
-            InterOpNumThreads = 1
-        };
-
-        _session = new InferenceSession(modelPath, options);
-        options.Dispose();
-        _inputName = _session.InputMetadata.Keys.First();
+    internal TableFormerOnnxBackend(IOnnxSessionAdapter session)
+    {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
     }
 
     public IReadOnlyList<TableRegion> Infer(SKBitmap image, string sourcePath)
     {
         var tensor = Preprocess(image);
-        var input = NamedOnnxValue.CreateFromTensor(_inputName, tensor);
-        using var results = _session.Run(new[] { input });
-        (input as IDisposable)?.Dispose();
+        var outputs = _session.Run(tensor).ToList();
 
-        var logitsTensor = results.First(x => string.Equals(x.Name, "logits", StringComparison.OrdinalIgnoreCase)).AsTensor<float>();
-        var boxesTensor = results.First(x => string.Equals(x.Name, "pred_boxes", StringComparison.OrdinalIgnoreCase)).AsTensor<float>();
+        var logitsOutput = FindOutput(outputs, "logits");
+        var boxesOutput = FindOutput(outputs, "pred_boxes");
 
-        var logits = logitsTensor.ToArray();
-        var boxes = boxesTensor.ToArray();
-        var logitsShape = ToLongArray(logitsTensor.Dimensions);
-        var boxesShape = ToLongArray(boxesTensor.Dimensions);
+        return TableFormerDetectionParser.Parse(
+            logitsOutput.Data,
+            logitsOutput.Shape,
+            boxesOutput.Data,
+            boxesOutput.Shape,
+            image.Width,
+            image.Height);
+    }
 
-        return TableFormerDetectionParser.Parse(logits, logitsShape, boxes, boxesShape, image.Width, image.Height);
+    private static OnnxOutput FindOutput(IEnumerable<OnnxOutput> outputs, string name)
+    {
+        foreach (var output in outputs)
+        {
+            if (string.Equals(output.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return output;
+            }
+        }
+
+        throw new InvalidOperationException($"ONNX output '{name}' was not found");
     }
 
     private static DenseTensor<float> Preprocess(SKBitmap bitmap)
@@ -71,6 +73,63 @@ internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
     }
 
     public void Dispose() => _session.Dispose();
+}
+
+internal interface IOnnxSessionAdapter : IDisposable
+{
+    IEnumerable<OnnxOutput> Run(DenseTensor<float> tensor);
+}
+
+internal sealed record OnnxOutput(string Name, float[] Data, long[] Shape);
+
+[ExcludeFromCodeCoverage]
+internal sealed class InferenceSessionAdapter : IOnnxSessionAdapter
+{
+    private readonly InferenceSession _session;
+    private readonly string _inputName;
+
+    public InferenceSessionAdapter(string modelPath)
+        : this(modelPath, configureOptions: null)
+    {
+    }
+
+    internal InferenceSessionAdapter(string modelPath, Action<SessionOptions>? configureOptions)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+        {
+            throw new ArgumentException("Model path is empty", nameof(modelPath));
+        }
+
+        var options = new SessionOptions
+        {
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+            IntraOpNumThreads = 0,
+            InterOpNumThreads = 1
+        };
+
+        configureOptions?.Invoke(options);
+
+        _session = new InferenceSession(modelPath, options);
+        options.Dispose();
+        _inputName = _session.InputMetadata.Keys.First();
+    }
+
+    public IEnumerable<OnnxOutput> Run(DenseTensor<float> tensor)
+    {
+        var input = NamedOnnxValue.CreateFromTensor(_inputName, tensor);
+        using var results = _session.Run(new[] { input });
+        (input as IDisposable)?.Dispose();
+
+        foreach (var value in results)
+        {
+            var tensorValue = value.AsTensor<float>();
+            var shape = ToLongArray(tensorValue.Dimensions);
+            var data = tensorValue.ToArray();
+            (value as IDisposable)?.Dispose();
+            yield return new OnnxOutput(value.Name, data, shape);
+        }
+    }
 
     private static long[] ToLongArray(ReadOnlySpan<int> dimensions)
     {
@@ -81,5 +140,18 @@ internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
         }
 
         return result;
+    }
+
+    public void Dispose() => _session.Dispose();
+
+    public static InferenceSessionAdapter CreateOrt(string modelPath)
+    {
+        return new InferenceSessionAdapter(modelPath, ConfigureOrtSessionOptions);
+    }
+
+    private static void ConfigureOrtSessionOptions(SessionOptions options)
+    {
+        options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_DISABLE_ALL;
+        options.AddSessionConfigEntry("session.load_model_format", "ORT");
     }
 }

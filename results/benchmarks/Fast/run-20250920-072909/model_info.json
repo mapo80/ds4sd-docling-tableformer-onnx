@@ -1,0 +1,9 @@
+{
+  "model_path": "models/heron-optimized.ort",
+  "model_size_bytes": 1536,
+  "weights_path": null,
+  "weights_size_bytes": 0,
+  "ep": "ONNX Runtime (ORT format)",
+  "device": "CPU",
+  "precision": "fp32"
+}

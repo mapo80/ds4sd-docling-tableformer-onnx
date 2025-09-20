@@ -63,13 +63,13 @@ La libreria `TableFormerSdk` fornisce un'API modulare per orchestrare i diversi 
 - **ONNX Runtime** con grafi ottimizzati (`.ort`)
 - **OpenVINO CSharp API** (`.xml`/`.bin`)
 
-La soluzione è stata migrata a .NET 9 per sfruttare i miglioramenti del runtime e delle librerie di base. Tutti i progetti sono ora allineati con le ultime versioni stabili dei pacchetti NuGet (ONNX Runtime 1.22.1, SkiaSharp 3.119.0, suite xUnit 2.9.x) per garantire compatibilità e patch di sicurezza aggiornate.
+La soluzione è stata migrata a .NET 9 per sfruttare i miglioramenti del runtime e delle librerie di base. Tutti i progetti sono ora allineati con le ultime versioni stabili dei pacchetti NuGet (ONNX Runtime 1.22.1, binding OpenVINO per ORT 1.22.0, SkiaSharp 3.119.0, suite xUnit 2.9.x) per garantire compatibilità e patch di sicurezza aggiornate.
 
 ### Architettura della libreria
 Il refactoring suddivide le responsabilità principali in componenti dedicate:
 
 - `TableFormerSdk` coordina la pipeline di inferenza, applica la validazione degli input e restituisce `TableStructureResult`.
-- `TableFormerSdkOptions` raccoglie i percorsi dei modelli (`TableFormerModelPaths`), la configurazione della visualizzazione (`TableVisualizationOptions`) e le lingue disponibili (`TableFormerLanguage`).
+- `TableFormerSdkOptions` gestisce lingua, visualizzazione e telemetria, delegando il reperimento dei modelli all'interfaccia `ITableFormerModelCatalog` (per default `ReleaseModelCatalog`).
 - `BackendRegistry` gestisce il ciclo di vita dei backend concreti, istanziati tramite `DefaultBackendFactory` a partire dalle opzioni fornite.
 - Le classi in `TableFormerSdk.Constants` centralizzano messaggi e valori di default (colore/ampiezza degli overlay).
 - `OverlayRenderer` incapsula la generazione della bitmap con le bounding box.
@@ -92,15 +92,11 @@ using SkiaSharp;
 using TableFormerSdk;
 using TableFormerSdk.Configuration;
 using TableFormerSdk.Enums;
+using TableFormerSdk.Models;
 using TableFormerSdk.Performance;
 
 var options = new TableFormerSdkOptions(
-    onnx: new TableFormerModelPaths(
-        fastModelPath: "models/heron-optimized.onnx",
-        accurateModelPath: null),
-    openVino: new OpenVinoModelPaths(
-        fastModelXmlPath: "models/ov-ir-fp16/heron-optimized.xml",
-        accurateModelXmlPath: null),
+    modelCatalog: ReleaseModelCatalog.CreateDefault(),
     supportedLanguages: new[]
     {
         TableFormerLanguage.English,
@@ -115,6 +111,7 @@ var options = new TableFormerSdkOptions(
         runtimePriority: new[]
         {
             TableFormerRuntime.OpenVino,
+            TableFormerRuntime.Ort,
             TableFormerRuntime.Onnx
         }));
 
@@ -134,39 +131,43 @@ Console.WriteLine($"Runtime: {result.Runtime} Avg={result.PerformanceSnapshot.Av
 result.OverlayImage?.Encode(SKEncodedImageFormat.Png, 90)
     .SaveTo(File.OpenWrite("overlay.png"));
 ```
-> Nota: i percorsi dei modelli vengono validati in fase di costruzione tramite `TableFormerModelPaths` e `OpenVinoModelPaths`,
-> che verificano anche la presenza del file `.bin` associato agli IR OpenVINO pubblicati nella release GitHub (vedi `models/ov-ir-fp16/heron-optimized.xml`).
+> Il catalogo (`ReleaseModelCatalog`) risolve automaticamente gli artifact pubblicati nella release (`models/heron-optimized.onnx`, `models/heron-optimized.ort`, `models/ov-ir-fp16/heron-optimized.xml`/`.bin`), quindi l'applicazione .NET deve solo scegliere il runtime da utilizzare.
 
 I pacchetti NuGet di riferimento includono `Microsoft.ML.OnnxRuntime`, `OpenVINO.CSharp.API`, `OpenVINO.runtime.ubuntu.24-x86_64` e `SkiaSharp`.
 
 ### Benchmark runtime TableFormer (.NET)
-Abbiamo eseguito l'applicazione `TableFormerSdk.Benchmarks` su due immagini del dataset FinTabNet (cartella `dataset/FinTabNet/benchmark`) utilizzando cinque inferenze utili per immagine dopo un warm-up per ciascun runtime.【ebde9c†L1-L9】【5f08a6†L1-L9】 I modelli provengono dalla release GitHub: `models/heron-optimized.onnx` per ONNX Runtime e l'IR nativo `models/ov-ir-fp16/heron-optimized.xml` per OpenVINO.
+Abbiamo eseguito l'applicazione `TableFormerSdk.Benchmarks` su due immagini del dataset FinTabNet (cartella `dataset/FinTabNet/benchmark`) effettuando un warm-up e cinque inferenze utili per immagine su ciascun backend: ONNX Runtime con grafi FP32, il nuovo backend ORT e l'IR OpenVINO pubblicato nella release.【031f70†L1-L1】【cf0f34†L1-L16】【40b16d†L1-L8】
 
 ```bash
 # ONNX Runtime (modello ONNX FP32)
 dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
   --engine Onnx --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
   --images dataset/FinTabNet/benchmark --output results/benchmarks \
-  --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
+  --runs-per-image 5 --warmup 1 --target-h 448 --target-w 448
+
+# ONNX Runtime (formato ORT)
+dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
+  --engine Ort --variant-name Fast \
+  --images dataset/FinTabNet/benchmark --output results/benchmarks \
+  --runs-per-image 5 --warmup 1 --target-h 448 --target-w 448
 
 # OpenVINO (IR FP16 nativo)
 dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
   --engine OpenVino --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
-  --openvino-fast models/ov-ir-fp16/heron-optimized.xml \
   --images dataset/FinTabNet/benchmark --output results/benchmarks \
   --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
 ```
+Se gli artifact della release non si trovano nella cartella `models/` accanto agli eseguibili, passare `--models-root <percorso>` per indicare la directory che li contiene.
 
-Le medie aritmetiche (in millisecondi) sulle cinque misurazioni utili sono riassunte nella tabella seguente. I CSV generati includono ora il runtime realmente utilizzato (`filename,runtime,ms`) perché l'SDK restituisce la latenza nativa attraverso `TableStructureResult.InferenceTime`.
+Le statistiche aggregate (millisecondi) calcolate sui dieci campioni utili sono sintetizzate nella tabella seguente; le directory `summary.json` e `timings.csv` prodotte dall'applicazione riportano i dettagli completi.
 
-| Immagine | ONNX Runtime (ms) | OpenVINO (ms) |
-| --- | ---: | ---: |
-| HAL.2004.page_82.pdf_125315.png | 60,65 | 6,80 |
-| HAL.2004.page_82.pdf_125317.png | 53,90 | 5,57 |
+| Runtime | Risoluzione input | Media | Mediana | p95 |
+| --- | --- | ---: | ---: | ---: |
+| ONNX Runtime (`.onnx`) | 448×448 | 41,02 | 36,37 | 75,38 |
+| ONNX Runtime (`.ort`) | 448×448 | 28,86 | 13,98 | 72,38 |
+| OpenVINO FP16 (`.xml/.bin`) | 640×640 | 6,18 | 5,83 | 7,85 |
 
-I valori derivano dai CSV generati dall'applicazione (`timings.csv`).【3c7576†L1-L11】【5d16ff†L1-L11】 L'IR OpenVINO riduce di circa 9 volte il tempo medio rispetto al runtime ONNX su questo campione ristretto, pur mantenendo la scalabilità sull'intero dataset grazie al preprocessing integrato nello SDK. La console di benchmark sfrutta direttamente `TableStructureResult.InferenceTime`, mantenendo la coerenza con la logica di auto-tuning disponibile in produzione.
+I valori derivano dai file `summary.json` generati in `results/benchmarks/Fast`.【0d42e5†L1-L6】【0c3176†L1-L6】【e6f227†L1-L6】 La console di benchmark registra il runtime effettivo in `timings.csv`, mantenendo allineate le misurazioni con i dati restituiti da `TableStructureResult.InferenceTime`.
 ### Test e benchmark .NET
 - **Test unitari**: `dotnet test TableFormerSdk.sln`
 - **Benchmark**: l'applicazione console `TableFormerSdk.Benchmarks` replica gli script Python e salva gli stessi artifact.
@@ -174,7 +175,6 @@ I valori derivano dai CSV generati dall'applicazione (`timings.csv`).【3c7576�
 ```bash
 dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
   --engine Onnx --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
   --images dataset/FinTabNet/benchmark --output results/benchmarks \
   --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
 ```

@@ -6,6 +6,7 @@ using System.Linq;
 using TableFormerSdk;
 using TableFormerSdk.Configuration;
 using TableFormerSdk.Enums;
+using TableFormerSdk.Models;
 using SkiaSharp;
 
 static Dictionary<string,string> ParseArgs(string[] args)
@@ -56,25 +57,24 @@ int warmup = int.Parse(par.GetValueOrDefault("--warmup", "1"));
 int runsPerImage = int.Parse(par.GetValueOrDefault("--runs-per-image", "1"));
 int targetH = int.Parse(par.GetValueOrDefault("--target-h", "640"));
 int targetW = int.Parse(par.GetValueOrDefault("--target-w", "640"));
+string? modelsRoot = par.GetValueOrDefault("--models-root", null);
+
+ITableFormerModelCatalog catalog = modelsRoot is null
+    ? ReleaseModelCatalog.CreateDefault()
+    : new ReleaseModelCatalog(modelsRoot);
+
+if (!catalog.SupportsVariant(engine, variantEnum))
+{
+    Console.Error.WriteLine($"Runtime {engine} with variant {variantEnum} is not available in the model catalog.");
+    return;
+}
+
+var options = new TableFormerSdkOptions(catalog);
+using var sdk = new TableFormerSdk.TableFormerSdk(options);
 
 var ts = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 var runDir = Path.Combine(output, variant, $"run-{ts}");
 Directory.CreateDirectory(runDir);
-
-if (!par.TryGetValue("--onnx-fast", out var onnxFast))
-{
-    Console.Error.WriteLine("--onnx-fast is required");
-    return;
-}
-
-par.TryGetValue("--onnx-accurate", out var onnxAccurate);
-par.TryGetValue("--openvino-fast", out var openvinoFast);
-par.TryGetValue("--openvino-accurate", out var openvinoAccurate);
-
-var options = new TableFormerSdkOptions(
-    new TableFormerModelPaths(onnxFast, onnxAccurate),
-    openvinoFast is not null ? new OpenVinoModelPaths(openvinoFast, openvinoAccurate) : null);
-using var sdk = new TableFormerSdk.TableFormerSdk(options);
 
 // gather image files
 var files = Directory.Exists(images)
@@ -102,7 +102,7 @@ if (files.Count==0)
 // warmup
 var warmPath = ResizeToTemp(files[0], targetW, targetH);
 for (int i=0;i<warmup;i++)
-    sdk.Process(warmPath, false, engine, variantEnum);
+    sdk.Process(warmPath, false, variantEnum, engine);
 
 var timings = new List<double>();
 using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
@@ -113,7 +113,7 @@ using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
         var prepPath = ResizeToTemp(file, targetW, targetH);
         for (int r=0;r<runsPerImage;r++)
         {
-            var result = sdk.Process(prepPath, false, engine, variantEnum);
+            var result = sdk.Process(prepPath, false, variantEnum, engine);
             var ms = result.InferenceTime.TotalMilliseconds;
             csv.WriteLine($"{Path.GetFileName(file)},{result.Runtime},{ms:F3}");
             timings.Add(ms);
@@ -138,30 +138,16 @@ var summary = new {
 };
 File.WriteAllText(Path.Combine(runDir,"summary.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions{WriteIndented=true}));
 
-string modelPath;
-string? weightsPath = null;
-string executionProvider;
-
-switch (engine)
+var artifact = options.ModelCatalog.GetArtifact(engine, variantEnum);
+string modelPath = artifact.ModelPath;
+string? weightsPath = artifact.WeightsPath;
+string executionProvider = engine switch
 {
-    case TableFormerRuntime.Onnx:
-        modelPath = options.Onnx.GetModelPath(variantEnum);
-        executionProvider = "ONNX Runtime";
-        break;
-    case TableFormerRuntime.OpenVino:
-        if (options.OpenVino is null)
-        {
-            throw new InvalidOperationException("OpenVINO paths are not configured");
-        }
-
-        var paths = options.OpenVino.GetModelPaths(variantEnum);
-        modelPath = paths.Xml;
-        weightsPath = paths.Weights;
-        executionProvider = "OpenVINO";
-        break;
-    default:
-        throw new NotSupportedException($"Benchmark engine {engine} is not supported");
-}
+    TableFormerRuntime.Onnx => "ONNX Runtime",
+    TableFormerRuntime.Ort => "ONNX Runtime (ORT format)",
+    TableFormerRuntime.OpenVino => "OpenVINO",
+    _ => engine.ToString()
+};
 
 var modelInfo = new {
     model_path = modelPath,
