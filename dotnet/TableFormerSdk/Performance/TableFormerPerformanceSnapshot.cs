@@ -13,7 +13,7 @@ public sealed record TableFormerPerformanceSnapshot(
     double BestLatencyMilliseconds,
     double LastLatencyMilliseconds)
 {
-    public override string ToString() => string.Create(
+    public override string ToString() => string.Format(
         CultureInfo.InvariantCulture,
         "{0}/{1}: n={2}, avg={3:F3} ms, best={4:F3} ms",
         Runtime,

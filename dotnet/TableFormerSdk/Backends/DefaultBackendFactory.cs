@@ -16,11 +16,27 @@ internal sealed class DefaultBackendFactory : ITableFormerBackendFactory
     public ITableFormerBackend CreateBackend(TableFormerRuntime runtime, TableFormerModelVariant variant) => runtime switch
     {
         TableFormerRuntime.Auto => throw new ArgumentException("Auto runtime must be resolved before backend creation", nameof(runtime)),
-        TableFormerRuntime.Onnx => new TableFormerOnnxBackend(_options.Onnx.GetModelPath(variant)),
-        TableFormerRuntime.Ort => throw new NotSupportedException("ORT backend not yet implemented"),
-        TableFormerRuntime.OpenVino => _options.OpenVino is not null
-            ? new OpenVinoBackend(_options.OpenVino.GetModelPaths(variant).Xml)
-            : throw new InvalidOperationException("OpenVINO model paths are not configured"),
+        TableFormerRuntime.Onnx => CreateOnnxBackend(TableFormerRuntime.Onnx, variant),
+        TableFormerRuntime.Ort => CreateOrtBackend(variant),
+        TableFormerRuntime.OpenVino => CreateOpenVinoBackend(variant),
         _ => throw new ArgumentOutOfRangeException(nameof(runtime), runtime, "Unsupported runtime")
     };
+
+    private ITableFormerBackend CreateOnnxBackend(TableFormerRuntime runtime, TableFormerModelVariant variant)
+    {
+        var artifact = _options.ModelCatalog.GetArtifact(runtime, variant);
+        return new TableFormerOnnxBackend(artifact.ModelPath);
+    }
+
+    private ITableFormerBackend CreateOrtBackend(TableFormerModelVariant variant)
+    {
+        var artifact = _options.ModelCatalog.GetArtifact(TableFormerRuntime.Ort, variant);
+        return new TableFormerOrtBackend(artifact.ModelPath);
+    }
+
+    private ITableFormerBackend CreateOpenVinoBackend(TableFormerModelVariant variant)
+    {
+        var artifact = _options.ModelCatalog.GetArtifact(TableFormerRuntime.OpenVino, variant);
+        return new OpenVinoBackend(artifact.ModelPath);
+    }
 }

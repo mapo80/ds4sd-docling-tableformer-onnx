@@ -2,6 +2,7 @@ using OpenVinoSharp;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using TableFormerSdk.Models;
@@ -10,37 +11,16 @@ namespace TableFormerSdk.Backends;
 
 internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
 {
-    private readonly Core _core;
-    private readonly Model _model;
-    private readonly CompiledModel _compiledModel;
-    private readonly InferRequest _request;
-    private readonly string _inputName;
-    private readonly string _logitsOutputName;
-    private readonly string? _boxesOutputName;
-    private readonly int _modelInputWidth;
-    private readonly int _modelInputHeight;
+    private readonly IOpenVinoRuntimeAdapter _runtime;
 
     public OpenVinoBackend(string modelPath)
+        : this(new OpenVinoRuntimeAdapter(modelPath))
     {
-        EnsureNativeBinariesAreAvailable();
+    }
 
-        _core = new Core();
-        _model = _core.read_model(modelPath);
-        _compiledModel = _core.compile_model(_model, "CPU");
-        _request = _compiledModel.create_infer_request();
-        var modelInputs = _model.inputs();
-        _inputName = modelInputs[0].get_any_name();
-        var inputShape = modelInputs[0].get_shape();
-        _modelInputHeight = (int)inputShape[inputShape.Count - 2];
-        _modelInputWidth = (int)inputShape[inputShape.Count - 1];
-        var outputs = _model.outputs();
-        if (outputs.Count == 0)
-        {
-            throw new InvalidOperationException("OpenVINO model does not expose any outputs");
-        }
-
-        _logitsOutputName = outputs[0].get_any_name();
-        _boxesOutputName = outputs.Count > 1 ? outputs[1].get_any_name() : null;
+    internal OpenVinoBackend(IOpenVinoRuntimeAdapter runtime)
+    {
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
     }
 
     public IReadOnlyList<TableRegion> Infer(SKBitmap image, string sourcePath)
@@ -48,9 +28,9 @@ internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
         int outputWidth = image.Width;
         int outputHeight = image.Height;
 
-        using var resized = (outputWidth == _modelInputWidth && outputHeight == _modelInputHeight)
+        using var resized = (outputWidth == _runtime.ModelInputWidth && outputHeight == _runtime.ModelInputHeight)
             ? null
-            : image.Resize(new SKImageInfo(_modelInputWidth, _modelInputHeight), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+            : image.Resize(new SKImageInfo(_runtime.ModelInputWidth, _runtime.ModelInputHeight), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
 
         var working = resized ?? image;
         int width = working.Width;
@@ -69,13 +49,9 @@ internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
             }
         }
 
-        using var tensor = new Tensor(new Shape(new long[] { 1, 3, height, width }), data);
-        _request.set_tensor(_inputName, tensor);
-        _request.infer();
+        var outputs = _runtime.Infer(data, height, width);
 
-        using var logitsTensor = _request.get_tensor(_logitsOutputName);
-
-        if (_boxesOutputName is null)
+        if (!outputs.HasBoxes)
         {
             return new List<TableRegion>
             {
@@ -83,17 +59,108 @@ internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
             };
         }
 
-        using var boxesTensor = _request.get_tensor(_boxesOutputName);
+        return TableFormerDetectionParser.Parse(
+            outputs.Logits!,
+            outputs.LogitsShape!,
+            outputs.Boxes!,
+            outputs.BoxesShape!,
+            outputWidth,
+            outputHeight);
+    }
 
+    public void Dispose() => _runtime.Dispose();
+}
+
+internal interface IOpenVinoRuntimeAdapter : IDisposable
+{
+    int ModelInputWidth { get; }
+    int ModelInputHeight { get; }
+    OpenVinoOutputs Infer(float[] data, int height, int width);
+}
+
+internal sealed class OpenVinoOutputs
+{
+    public OpenVinoOutputs(float[] logits, long[] logitsShape, float[]? boxes, long[]? boxesShape)
+    {
+        Logits = logits;
+        LogitsShape = logitsShape;
+        Boxes = boxes;
+        BoxesShape = boxesShape;
+    }
+
+    public float[]? Logits { get; }
+    public long[]? LogitsShape { get; }
+    public float[]? Boxes { get; }
+    public long[]? BoxesShape { get; }
+
+    public bool HasBoxes => Boxes is not null && BoxesShape is not null;
+}
+
+[ExcludeFromCodeCoverage]
+internal sealed class OpenVinoRuntimeAdapter : IOpenVinoRuntimeAdapter
+{
+    private readonly Core _core;
+    private readonly Model _model;
+    private readonly CompiledModel _compiledModel;
+    private readonly InferRequest _request;
+    private readonly string _inputName;
+    private readonly string _logitsOutputName;
+    private readonly string? _boxesOutputName;
+
+    public OpenVinoRuntimeAdapter(string modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+        {
+            throw new ArgumentException("Model path is empty", nameof(modelPath));
+        }
+
+        EnsureNativeBinariesAreAvailable();
+
+        _core = new Core();
+        _model = _core.read_model(modelPath);
+        _compiledModel = _core.compile_model(_model, "CPU");
+        _request = _compiledModel.create_infer_request();
+        var modelInputs = _model.inputs();
+        _inputName = modelInputs[0].get_any_name();
+        var inputShape = modelInputs[0].get_shape();
+        ModelInputHeight = (int)inputShape[inputShape.Count - 2];
+        ModelInputWidth = (int)inputShape[inputShape.Count - 1];
+        var outputs = _model.outputs();
+        if (outputs.Count == 0)
+        {
+            throw new InvalidOperationException("OpenVINO model does not expose any outputs");
+        }
+
+        _logitsOutputName = outputs[0].get_any_name();
+        _boxesOutputName = outputs.Count > 1 ? outputs[1].get_any_name() : null;
+    }
+
+    public int ModelInputWidth { get; private set; }
+
+    public int ModelInputHeight { get; private set; }
+
+    public OpenVinoOutputs Infer(float[] data, int height, int width)
+    {
+        using var tensor = new Tensor(new Shape(new long[] { 1, 3, height, width }), data);
+        _request.set_tensor(_inputName, tensor);
+        _request.infer();
+
+        using var logitsTensor = _request.get_tensor(_logitsOutputName);
         var logitsShape = logitsTensor.get_shape();
-        var boxesShape = boxesTensor.get_shape();
         int logitsLength = (int)logitsShape.Aggregate(1L, (current, dim) => current * dim);
-        int boxesLength = (int)boxesShape.Aggregate(1L, (current, dim) => current * dim);
-
         var logits = logitsTensor.get_data<float>(logitsLength);
+
+        if (_boxesOutputName is null)
+        {
+            return new OpenVinoOutputs(logits, logitsShape.ToArray(), null, null);
+        }
+
+        using var boxesTensor = _request.get_tensor(_boxesOutputName);
+        var boxesShape = boxesTensor.get_shape();
+        int boxesLength = (int)boxesShape.Aggregate(1L, (current, dim) => current * dim);
         var boxes = boxesTensor.get_data<float>(boxesLength);
 
-        return TableFormerDetectionParser.Parse(logits, logitsShape.ToArray(), boxes, boxesShape.ToArray(), outputWidth, outputHeight);
+        return new OpenVinoOutputs(logits, logitsShape.ToArray(), boxes, boxesShape.ToArray());
     }
 
     public void Dispose()

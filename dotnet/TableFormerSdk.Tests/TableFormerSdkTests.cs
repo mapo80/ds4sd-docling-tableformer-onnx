@@ -2,6 +2,7 @@ using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using TableFormerSdk;
 using TableFormerSdk.Backends;
@@ -41,20 +42,20 @@ public class TableFormerSdkTests
 {
     private static TableFormerClient CreateSdkWithFakeBackend(TableFormerPerformanceOptions? performanceOptions = null, bool includeOpenVino = false)
     {
-        var onnxPath = CreateTempModelFile(".onnx");
-        OpenVinoModelPaths? openVino = null;
+        var artifacts = new List<TableFormerModelArtifact>
+        {
+            new(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, CreateTempModelFile(".onnx"))
+        };
+
         if (includeOpenVino)
         {
             var xmlPath = CreateTempModelFile(".xml");
             var binPath = Path.ChangeExtension(xmlPath, ".bin");
-            File.WriteAllBytes(binPath, Array.Empty<byte>());
-            openVino = new OpenVinoModelPaths(xmlPath, null);
+            File.WriteAllBytes(binPath!, Array.Empty<byte>());
+            artifacts.Add(new TableFormerModelArtifact(TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast, xmlPath, binPath));
         }
 
-        var options = new TableFormerSdkOptions(
-            new TableFormerModelPaths(onnxPath, null),
-            openVino,
-            performanceOptions: performanceOptions);
+        var options = new TableFormerSdkOptions(new FakeModelCatalog(artifacts), performanceOptions: performanceOptions);
 
         var sdk = new TableFormerClient(options);
         sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, new FakeBackend());
@@ -87,14 +88,14 @@ public class TableFormerSdkTests
     public void Process_EmptyPath_Throws()
     {
         var sdk = CreateSdkWithFakeBackend();
-        Assert.Throws<ArgumentException>(() => sdk.Process("", false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast));
+        Assert.Throws<ArgumentException>(() => sdk.Process("", false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx));
     }
 
     [Fact]
     public void Process_MissingImage_Throws()
     {
         var sdk = CreateSdkWithFakeBackend();
-        Assert.Throws<FileNotFoundException>(() => sdk.Process("missing.png", false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast));
+        Assert.Throws<FileNotFoundException>(() => sdk.Process("missing.png", false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx));
     }
 
     [Fact]
@@ -102,7 +103,7 @@ public class TableFormerSdkTests
     {
         var sdk = CreateSdkWithFakeBackend();
         var imagePath = CreateSampleImage();
-        var result = sdk.Process(imagePath, true, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast);
+        var result = sdk.Process(imagePath, true, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx);
         Assert.NotNull(result.OverlayImage);
         Assert.Single(result.Regions);
         Assert.Equal(TableFormerRuntime.Onnx, result.Runtime);
@@ -115,8 +116,28 @@ public class TableFormerSdkTests
     {
         var sdk = CreateSdkWithFakeBackend();
         var imagePath = CreateSampleImage();
-        var result = sdk.Process(imagePath, false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast);
+        var result = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx);
         Assert.Null(result.OverlayImage);
+    }
+
+    [Fact]
+    public void Process_WithOrtRuntime_UsesRegisteredBackend()
+    {
+        var catalog = new FakeModelCatalog(new[]
+        {
+            new TableFormerModelArtifact(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, CreateTempModelFile(".onnx")),
+            new TableFormerModelArtifact(TableFormerRuntime.Ort, TableFormerModelVariant.Fast, CreateTempModelFile(".ort"))
+        });
+        var options = new TableFormerSdkOptions(catalog);
+        using var sdk = new TableFormerClient(options);
+        var backend = new FakeBackend();
+        sdk.RegisterBackend(TableFormerRuntime.Ort, TableFormerModelVariant.Fast, backend);
+
+        var imagePath = CreateSampleImage();
+        var result = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Ort);
+
+        Assert.Equal(1, backend.InvocationCount);
+        Assert.Equal(TableFormerRuntime.Ort, result.Runtime);
     }
 
     [Fact]
@@ -133,12 +154,13 @@ public class TableFormerSdkTests
 
         var imagePath = CreateSampleImage();
 
-        var first = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
-        var second = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
-        var third = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
+        var first = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
+        var second = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
+        var third = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
 
-        Assert.Equal(TableFormerRuntime.Onnx, first.Runtime);
-        Assert.Equal(TableFormerRuntime.OpenVino, second.Runtime);
+        var observedRuntimes = new[] { first.Runtime, second.Runtime, third.Runtime };
+        Assert.Contains(TableFormerRuntime.Onnx, observedRuntimes);
+        Assert.Contains(TableFormerRuntime.OpenVino, observedRuntimes);
         Assert.Equal(TableFormerRuntime.OpenVino, third.Runtime);
 
         Assert.True(third.InferenceTime <= first.InferenceTime);
@@ -148,4 +170,25 @@ public class TableFormerSdkTests
         Assert.Contains(snapshots, s => s.Runtime == TableFormerRuntime.Onnx && s.TotalSampleCount == 1);
         Assert.Contains(snapshots, s => s.Runtime == TableFormerRuntime.OpenVino && s.TotalSampleCount >= 2);
     }
+}
+
+file sealed class FakeModelCatalog : ITableFormerModelCatalog
+{
+    private readonly Dictionary<(TableFormerRuntime Runtime, TableFormerModelVariant Variant), TableFormerModelArtifact> _artifacts;
+
+    public FakeModelCatalog(IEnumerable<TableFormerModelArtifact> artifacts)
+    {
+        _artifacts = artifacts.ToDictionary(a => (a.Runtime, a.Variant));
+    }
+
+    public bool SupportsRuntime(TableFormerRuntime runtime)
+        => _artifacts.Keys.Any(key => key.Runtime == runtime);
+
+    public bool SupportsVariant(TableFormerRuntime runtime, TableFormerModelVariant variant)
+        => _artifacts.ContainsKey((runtime, variant));
+
+    public TableFormerModelArtifact GetArtifact(TableFormerRuntime runtime, TableFormerModelVariant variant)
+        => _artifacts.TryGetValue((runtime, variant), out var artifact)
+            ? artifact
+            : throw new NotSupportedException();
 }

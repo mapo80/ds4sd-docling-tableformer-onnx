@@ -28,8 +28,8 @@ public sealed class TableFormerSdk : IDisposable
     public TableStructureResult Process(
         string imagePath,
         bool overlay,
-        TableFormerRuntime runtime = TableFormerRuntime.Auto,
         TableFormerModelVariant variant,
+        TableFormerRuntime runtime = TableFormerRuntime.Auto,
         TableFormerLanguage? language = null)
     {
         if (string.IsNullOrWhiteSpace(imagePath))

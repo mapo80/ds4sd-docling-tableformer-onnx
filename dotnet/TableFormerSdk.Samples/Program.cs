@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using TableFormerSdk;
+using TableFormerSdk.Models;
 
 var repoRoot = ResolveRepoRoot();
 var datasetDir = Path.Combine(repoRoot, "dataset", "FinTabNet");
@@ -27,7 +28,8 @@ var annotations = JsonSerializer.Deserialize<List<SampleAnnotation>>(json, new J
     PropertyNameCaseInsensitive = true
 }) ?? throw new InvalidOperationException("Unable to parse annotation file");
 
-var options = new TableFormerSdkOptions(new TableFormerModelPaths("dummy.onnx", null));
+var catalog = new ReleaseModelCatalog(Path.Combine(repoRoot, "models"));
+var options = new TableFormerSdkOptions(catalog);
 using var sdk = new TableFormerSdk.TableFormerSdk(options);
 var annotationBackend = new AnnotationBackend(annotations);
 

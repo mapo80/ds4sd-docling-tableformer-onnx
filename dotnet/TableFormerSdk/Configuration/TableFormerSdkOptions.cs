@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using TableFormerSdk.Constants;
 using TableFormerSdk.Enums;
+using TableFormerSdk.Models;
 using TableFormerSdk.Performance;
 
 namespace TableFormerSdk.Configuration;
@@ -13,15 +14,13 @@ public sealed class TableFormerSdkOptions
     private readonly IReadOnlyCollection<TableFormerLanguage> _supportedLanguages;
 
     public TableFormerSdkOptions(
-        TableFormerModelPaths onnx,
-        OpenVinoModelPaths? openVino = null,
+        ITableFormerModelCatalog? modelCatalog = null,
         TableFormerLanguage defaultLanguage = TableFormerLanguage.English,
         IEnumerable<TableFormerLanguage>? supportedLanguages = null,
         TableVisualizationOptions? visualizationOptions = null,
         TableFormerPerformanceOptions? performanceOptions = null)
     {
-        Onnx = onnx ?? throw new ArgumentNullException(nameof(onnx));
-        OpenVino = openVino;
+        ModelCatalog = modelCatalog ?? ReleaseModelCatalog.CreateDefault();
 
         _supportedLanguages = BuildSupportedLanguages(defaultLanguage, supportedLanguages);
         DefaultLanguage = defaultLanguage;
@@ -30,9 +29,7 @@ public sealed class TableFormerSdkOptions
         AvailableRuntimes = BuildAvailableRuntimes();
     }
 
-    public TableFormerModelPaths Onnx { get; }
-
-    public OpenVinoModelPaths? OpenVino { get; }
+    public ITableFormerModelCatalog ModelCatalog { get; }
 
     public TableFormerLanguage DefaultLanguage { get; }
 
@@ -65,10 +62,13 @@ public sealed class TableFormerSdkOptions
 
     private IReadOnlyList<TableFormerRuntime> BuildAvailableRuntimes()
     {
-        var runtimes = new List<TableFormerRuntime> { TableFormerRuntime.Onnx };
-        if (OpenVino is not null)
+        var runtimes = Enum.GetValues<TableFormerRuntime>()
+            .Where(runtime => runtime != TableFormerRuntime.Auto && ModelCatalog.SupportsRuntime(runtime))
+            .ToList();
+
+        if (runtimes.Count == 0)
         {
-            runtimes.Add(TableFormerRuntime.OpenVino);
+            throw new InvalidOperationException("Nessun runtime disponibile: verificare che i modelli siano presenti nel catalogo configurato");
         }
 
         return new ReadOnlyCollection<TableFormerRuntime>(runtimes);
