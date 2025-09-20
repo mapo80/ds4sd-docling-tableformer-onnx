@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TableFormerSdk.Samples", "d
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TableFormerSdk.ReleaseSample", "dotnet\TableFormerSdk.ReleaseSample\TableFormerSdk.ReleaseSample.csproj", "{CE85CD06-9A88-4E0C-8862-1DCF9E7946A8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TableFormerSdk.ReleaseVerification", "dotnet\TableFormerSdk.ReleaseVerification\TableFormerSdk.ReleaseVerification.csproj", "{1FB2D3EC-438D-4388-A140-BC13CC03F97E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -127,6 +129,18 @@ Global
 		{CE85CD06-9A88-4E0C-8862-1DCF9E7946A8}.Release|x64.Build.0 = Release|Any CPU
 		{CE85CD06-9A88-4E0C-8862-1DCF9E7946A8}.Release|x86.ActiveCfg = Release|Any CPU
 		{CE85CD06-9A88-4E0C-8862-1DCF9E7946A8}.Release|x86.Build.0 = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|x64.Build.0 = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Debug|x86.Build.0 = Debug|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|x64.ActiveCfg = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|x64.Build.0 = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|x86.ActiveCfg = Release|Any CPU
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -140,6 +154,7 @@ Global
 		{B588C7A0-FDF4-4A45-80E8-53D92B4AF232} = {71E6E750-85FD-B5BC-4321-E01377EC6231}
 		{67B9F2DD-6A48-4CD3-8F14-1943D98D4BD9} = {71E6E750-85FD-B5BC-4321-E01377EC6231}
 		{CE85CD06-9A88-4E0C-8862-1DCF9E7946A8} = {71E6E750-85FD-B5BC-4321-E01377EC6231}
+		{1FB2D3EC-438D-4388-A140-BC13CC03F97E} = {71E6E750-85FD-B5BC-4321-E01377EC6231}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3A54F892-A00A-418D-9CDE-AA2DF064CBBB}
