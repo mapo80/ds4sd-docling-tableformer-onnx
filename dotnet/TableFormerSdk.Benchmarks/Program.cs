@@ -1,208 +1,234 @@
-using System.Globalization;
-using System.Security.Cryptography;
-using System.Text.Json;
-using System.Collections.Generic;
+using Microsoft.Extensions.Logging.Abstractions;
+using SkiaSharp;
+using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using TableFormerSdk;
 using TableFormerSdk.Configuration;
 using TableFormerSdk.Enums;
-using SkiaSharp;
 
-static Dictionary<string,string> ParseArgs(string[] args)
+public class TableFormerPerformanceAnalyzer
 {
-    var dict = new Dictionary<string,string>();
-    for (int i=0;i<args.Length;i++)
+    public static void Main(string[] args)
     {
-        var a = args[i];
-        if (a.StartsWith("--"))
-        {
-            var key = a;
-            string val = (i+1<args.Length && !args[i+1].StartsWith("--"))? args[++i]:"true";
-            dict[key]=val;
-        }
+        Console.WriteLine("🚀 TABLEFORMER PIPELINE PERFORMANCE ANALYZER");
+        Console.WriteLine("===========================================\n");
+
+        var analyzer = new TableFormerPerformanceAnalyzer();
+        analyzer.RunAnalysis();
     }
-    return dict;
-}
 
-static string ResizeToTemp(string path, int w, int h)
-{
-    using var bmp = SKBitmap.Decode(path);
-    var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
-    using var resized = bmp.Resize(new SKImageInfo(w, h), sampling);
-    var tmp = Path.GetTempFileName() + ".png";
-    using var img = SKImage.FromBitmap(resized);
-    using var data = img.Encode(SKEncodedImageFormat.Png, 90);
-    using var fs = File.OpenWrite(tmp);
-    data.SaveTo(fs);
-    return tmp;
-}
-
-var par = ParseArgs(args);
-if (!par.TryGetValue("--variant-name", out var variant))
-{
-    Console.Error.WriteLine("--variant-name is required");
-    return;
-}
-if (!par.TryGetValue("--engine", out var engStr))
-{
-    Console.Error.WriteLine("--engine is required");
-    return;
-}
-var engine = Enum.Parse<TableFormerRuntime>(engStr, true);
-var variantEnum = Enum.Parse<TableFormerModelVariant>(variant, true);
-string images = par.GetValueOrDefault("--images", "./dataset");
-string output = par.GetValueOrDefault("--output", "results");
-int warmup = int.Parse(par.GetValueOrDefault("--warmup", "1"));
-int runsPerImage = int.Parse(par.GetValueOrDefault("--runs-per-image", "1"));
-int targetH = int.Parse(par.GetValueOrDefault("--target-h", "640"));
-int targetW = int.Parse(par.GetValueOrDefault("--target-w", "640"));
-
-var ts = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-var runDir = Path.Combine(output, variant, $"run-{ts}");
-Directory.CreateDirectory(runDir);
-
-if (!par.TryGetValue("--onnx-fast", out var onnxFast))
-{
-    Console.Error.WriteLine("--onnx-fast is required");
-    return;
-}
-
-par.TryGetValue("--onnx-accurate", out var onnxAccurate);
-par.TryGetValue("--openvino-fast", out var openvinoFast);
-par.TryGetValue("--openvino-accurate", out var openvinoAccurate);
-
-var options = new TableFormerSdkOptions(
-    new TableFormerModelPaths(onnxFast, onnxAccurate),
-    openvinoFast is not null ? new OpenVinoModelPaths(openvinoFast, openvinoAccurate) : null);
-using var sdk = new TableFormerSdk.TableFormerSdk(options);
-
-// gather image files
-var files = Directory.Exists(images)
-    ? Directory.GetFiles(images)
-        .Where(f => f.EndsWith(".jpg", true, CultureInfo.InvariantCulture) ||
-                    f.EndsWith(".jpeg", true, CultureInfo.InvariantCulture) ||
-                    f.EndsWith(".png", true, CultureInfo.InvariantCulture) ||
-                    f.EndsWith(".bmp", true, CultureInfo.InvariantCulture) ||
-                    f.EndsWith(".tif", true, CultureInfo.InvariantCulture) ||
-                    f.EndsWith(".tiff", true, CultureInfo.InvariantCulture))
-        .OrderBy(f=>f)
-        .ToList()
-    : new List<string>();
-if (files.Count==0)
-{
-    using var bmp = new SKBitmap(targetW,targetH);
-    using var img = SKImage.FromBitmap(bmp);
-    var tmp = Path.GetTempFileName()+".png";
-    using var data = img.Encode(SKEncodedImageFormat.Png, 90);
-    using var fs = File.OpenWrite(tmp);
-    data.SaveTo(fs);
-    files.Add(tmp);
-}
-
-// warmup
-var warmPath = ResizeToTemp(files[0], targetW, targetH);
-for (int i=0;i<warmup;i++)
-    sdk.Process(warmPath, false, engine, variantEnum);
-
-var timings = new List<double>();
-using (var csv = new StreamWriter(Path.Combine(runDir, "timings.csv")))
-{
-    csv.WriteLine("filename,runtime,ms");
-    foreach (var file in files)
+    public void RunAnalysis()
     {
-        var prepPath = ResizeToTemp(file, targetW, targetH);
-        for (int r=0;r<runsPerImage;r++)
+        // Carica immagine di test
+        var testImagePath = FindTestImage();
+        if (testImagePath == null)
         {
-            var result = sdk.Process(prepPath, false, engine, variantEnum);
-            var ms = result.InferenceTime.TotalMilliseconds;
-            csv.WriteLine($"{Path.GetFileName(file)},{result.Runtime},{ms:F3}");
-            timings.Add(ms);
+            Console.WriteLine("❌ Test image not found");
+            return;
         }
+
+        Console.WriteLine($"📷 Test Image: {testImagePath}");
+        using var testImage = SKBitmap.Decode(testImagePath);
+        if (testImage == null)
+        {
+            Console.WriteLine("❌ Failed to decode test image");
+            return;
+        }
+
+        Console.WriteLine($"📐 Image Size: {testImage.Width}x{testImage.Height}\n");
+
+        // Benchmark 1: Pipeline completa
+        var pipelineTime = BenchmarkPipeline(testImagePath);
+        Console.WriteLine($"⏱️  Pipeline completa: {pipelineTime:F2}ms");
+
+        // Benchmark 2: Solo preprocessing
+        var preprocessingTime = BenchmarkPreprocessing(testImage);
+        Console.WriteLine($"⏱️  Solo preprocessing: {preprocessingTime:F2}ms");
+
+        // Benchmark 3: Solo encoder
+        var encoderTime = BenchmarkEncoder(testImage);
+        Console.WriteLine($"⏱️  Solo encoder: {encoderTime:F2}ms");
+
+        // Benchmark 4: Encoder + BboxDecoder
+        var pipelineStepTime = BenchmarkPipelineStep(testImage);
+        Console.WriteLine($"⏱️  Encoder + BboxDecoder: {pipelineStepTime:F2}ms");
+
+        // Analisi risultati
+        AnalyzeResults(pipelineTime, preprocessingTime, encoderTime, pipelineStepTime);
+    }
+
+    private string? FindTestImage()
+    {
+        var possiblePaths = new[]
+        {
+            Path.Combine("..", "..", "..", "..", "..", "dataset", "golden", "v0.12.0", "2305.03393v1-pg9", "source", "2305.03393v1-pg9-img.png"),
+            Path.Combine("dataset", "golden", "v0.12.0", "2305.03393v1-pg9", "source", "2305.03393v1-pg9-img.png"),
+            "dataset/2305.03393v1-pg9-img.png"
+        };
+
+        return possiblePaths.FirstOrDefault(File.Exists);
+    }
+
+    private double BenchmarkPipeline(string imagePath)
+    {
+        var encoderPath = Path.Combine("..", "..", "..", "models", "encoder.onnx");
+        var bboxDecoderPath = Path.Combine("..", "..", "..", "models", "bbox_decoder.onnx");
+        var decoderPath = Path.Combine("..", "..", "..", "models", "decoder.onnx");
+
+        var options = new TableFormerSdkOptions(
+            onnx: new TableFormerModelPaths(encoderPath, null),
+            pipeline: new PipelineModelPaths(encoderPath, bboxDecoderPath, decoderPath)
+        );
+
+        using var sdk = new TableFormerSdk(options);
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = sdk.Process(
+            imagePath: imagePath,
+            overlay: false,
+            runtime: TableFormerRuntime.Pipeline,
+            variant: TableFormerModelVariant.Fast
+        );
+        stopwatch.Stop();
+
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    private double BenchmarkPreprocessing(SKBitmap image)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        // Resize to 448x448 as expected by encoder
+        using var resized = image.Resize(new SKImageInfo(448, 448), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+
+        var data = new float[1, 3, 448, 448];
+        for (int y = 0; y < 448; y++)
+        {
+            for (int x = 0; x < 448; x++)
+            {
+                var color = resized.GetPixel(x, y);
+                data[0, 0, y, x] = color.Red / 255f;
+                data[0, 1, y, x] = color.Green / 255f;
+                data[0, 2, y, x] = color.Blue / 255f;
+            }
+        }
+
+        stopwatch.Stop();
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    private double BenchmarkEncoder(SKBitmap image)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        var encoderPath = Path.Combine("..", "..", "..", "models", "encoder.onnx");
+        using var encoderSession = new Microsoft.ML.OnnxRuntime.InferenceSession(encoderPath);
+
+        // Preprocessing
+        using var resized = image.Resize(new SKImageInfo(448, 448), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        var data = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(new[] { 1, 3, 448, 448 });
+
+        for (int y = 0; y < 448; y++)
+        {
+            for (int x = 0; x < 448; x++)
+            {
+                var color = resized.GetPixel(x, y);
+                data[0, 0, y, x] = color.Red / 255f;
+                data[0, 1, y, x] = color.Green / 255f;
+                data[0, 2, y, x] = color.Blue / 255f;
+            }
+        }
+
+        // Inference
+        var input = Microsoft.ML.OnnxRuntime.NamedOnnxValue.CreateFromTensor("images", data);
+        using var results = encoderSession.Run(new[] { input });
+
+        stopwatch.Stop();
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    private double BenchmarkPipelineStep(SKBitmap image)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        var encoderPath = Path.Combine("..", "..", "..", "models", "encoder.onnx");
+        var bboxDecoderPath = Path.Combine("..", "..", "..", "models", "bbox_decoder.onnx");
+
+        using var encoderSession = new Microsoft.ML.OnnxRuntime.InferenceSession(encoderPath);
+        using var bboxSession = new Microsoft.ML.OnnxRuntime.InferenceSession(bboxDecoderPath);
+
+        // Preprocessing
+        using var resized = image.Resize(new SKImageInfo(448, 448), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        var data = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(new[] { 1, 3, 448, 448 });
+
+        for (int y = 0; y < 448; y++)
+        {
+            for (int x = 0; x < 448; x++)
+            {
+                var color = resized.GetPixel(x, y);
+                data[0, 0, y, x] = color.Red / 255f;
+                data[0, 1, y, x] = color.Green / 255f;
+                data[0, 2, y, x] = color.Blue / 255f;
+            }
+        }
+
+        // Encoder inference
+        var input = Microsoft.ML.OnnxRuntime.NamedOnnxValue.CreateFromTensor("images", data);
+        using var encoderResults = encoderSession.Run(new[] { input });
+        var encoderOut = encoderResults[0].AsTensor<float>();
+
+        // BboxDecoder inference
+        var bboxInput = Microsoft.ML.OnnxRuntime.NamedOnnxValue.CreateFromTensor("encoder_out",
+            new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(encoderOut.ToArray(), encoderOut.Dimensions.ToArray()));
+        using var bboxResults = bboxSession.Run(new[] { bboxInput });
+
+        stopwatch.Stop();
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    private void AnalyzeResults(double pipelineTime, double preprocessingTime, double encoderTime, double pipelineStepTime)
+    {
+        Console.WriteLine("\n📊 PERFORMANCE ANALYSIS:");
+        Console.WriteLine("========================");
+
+        var inferenceTime = pipelineStepTime - preprocessingTime;
+        var overhead = pipelineTime - pipelineStepTime;
+
+        Console.WriteLine($"Preprocessing: {preprocessingTime:F2}ms ({preprocessingTime/pipelineTime*100:F1}%)");
+        Console.WriteLine($"Inference:     {inferenceTime:F2}ms ({inferenceTime/pipelineTime*100:F1}%)");
+        Console.WriteLine($"Overhead:      {overhead:F2}ms ({overhead/pipelineTime*100:F1}%)");
+        Console.WriteLine($"Total:         {pipelineTime:F2}ms");
+
+        Console.WriteLine("\n🎯 PERFORMANCE TARGETS:");
+        Console.WriteLine("=======================");
+        Console.WriteLine("Target Python:     ≤ 800ms");
+        Console.WriteLine($"Current .NET:      {pipelineTime:F2}ms");
+        Console.WriteLine($"Gap to target:     {pipelineTime - 800:F2}ms");
+
+        if (pipelineTime <= 800)
+        {
+            Console.WriteLine("✅ PERFORMANCE GOAL: RAGGIUNTO!");
+        }
+        else
+        {
+            Console.WriteLine("⚠️  PERFORMANCE GOAL: NON RAGGIUNTO");
+            Console.WriteLine("\n🔧 OTTIMIZZAZIONI RICHIESTE:");
+            if (preprocessingTime > 100)
+                Console.WriteLine("  • Ottimizzare preprocessing immagini");
+            if (inferenceTime > 600)
+                Console.WriteLine("  • Ottimizzare inference ONNX");
+            if (overhead > 100)
+                Console.WriteLine("  • Ridurre overhead pipeline");
+        }
+
+        Console.WriteLine("\n📈 RACCOMANDAZIONI:");
+        Console.WriteLine("===================");
+        Console.WriteLine("1. Parallel processing per modelli pipeline");
+        Console.WriteLine("2. Tensor reuse tra inference");
+        Console.WriteLine("3. Memory pooling per ottimizzazione GC");
+        Console.WriteLine("4. Native preprocessing con Span<T>");
+        Console.WriteLine("5. Session reuse per modelli ONNX");
     }
 }
-
-static double Percentile(List<double> seq, double p)
-{
-    if (seq.Count==0) return double.NaN;
-    var ordered = seq.OrderBy(x=>x).ToList();
-    var idx = (int)Math.Ceiling(p/100.0*ordered.Count)-1;
-    idx = Math.Clamp(idx,0,ordered.Count-1);
-    return ordered[idx];
-}
-
-var summary = new {
-    count = timings.Count,
-    mean_ms = timings.Count>0?timings.Average():double.NaN,
-    median_ms = Percentile(timings,50),
-    p95_ms = Percentile(timings,95)
-};
-File.WriteAllText(Path.Combine(runDir,"summary.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions{WriteIndented=true}));
-
-string modelPath;
-string? weightsPath = null;
-string executionProvider;
-
-switch (engine)
-{
-    case TableFormerRuntime.Onnx:
-        modelPath = options.Onnx.GetModelPath(variantEnum);
-        executionProvider = "ONNX Runtime";
-        break;
-    case TableFormerRuntime.OpenVino:
-        if (options.OpenVino is null)
-        {
-            throw new InvalidOperationException("OpenVINO paths are not configured");
-        }
-
-        var paths = options.OpenVino.GetModelPaths(variantEnum);
-        modelPath = paths.Xml;
-        weightsPath = paths.Weights;
-        executionProvider = "OpenVINO";
-        break;
-    default:
-        throw new NotSupportedException($"Benchmark engine {engine} is not supported");
-}
-
-var modelInfo = new {
-    model_path = modelPath,
-    model_size_bytes = File.Exists(modelPath) ? new FileInfo(modelPath).Length : 0,
-    weights_path = weightsPath,
-    weights_size_bytes = weightsPath is not null && File.Exists(weightsPath) ? new FileInfo(weightsPath).Length : 0,
-    ep = executionProvider,
-    device = "CPU",
-    precision = modelPath.ToLowerInvariant().Contains("fp16")?"fp16":"fp32"
-};
-File.WriteAllText(Path.Combine(runDir,"model_info.json"), JsonSerializer.Serialize(modelInfo,new JsonSerializerOptions{WriteIndented=true}));
-
-var env = new {
-    dotnet = Environment.Version.ToString(),
-    os = Environment.OSVersion.ToString()
-};
-File.WriteAllText(Path.Combine(runDir,"env.json"), JsonSerializer.Serialize(env,new JsonSerializerOptions{WriteIndented=true}));
-
-File.WriteAllText(Path.Combine(runDir,"config.json"), JsonSerializer.Serialize(new {
-    engine = engine.ToString(),
-    images,
-    variant,
-    warmup,
-    runs_per_image = runsPerImage,
-    target_h = targetH,
-    target_w = targetW
-}, new JsonSerializerOptions{WriteIndented=true}));
-
-static string Sha256Of(string path)
-{
-    using var sha = SHA256.Create();
-    using var s = File.OpenRead(path);
-    return Convert.ToHexString(sha.ComputeHash(s)).ToLowerInvariant();
-}
-
-var manifest = new {
-    files = new[]{"timings.csv","summary.json","model_info.json","env.json","config.json"}
-        .Select(f=> new {file=f, sha256=Sha256Of(Path.Combine(runDir,f))})
-};
-File.WriteAllText(Path.Combine(runDir,"manifest.json"), JsonSerializer.Serialize(manifest,new JsonSerializerOptions{WriteIndented=true}));
-
-File.WriteAllText(Path.Combine(runDir,"logs.txt"), $"RUN {variant} ok, N={timings.Count}\n");
-
-Console.WriteLine($"OK: {runDir}");

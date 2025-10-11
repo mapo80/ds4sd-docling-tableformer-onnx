@@ -21,6 +21,18 @@ internal sealed class DefaultBackendFactory : ITableFormerBackendFactory
         TableFormerRuntime.OpenVino => _options.OpenVino is not null
             ? new OpenVinoBackend(_options.OpenVino.GetModelPaths(variant).Xml)
             : throw new InvalidOperationException("OpenVINO model paths are not configured"),
+        TableFormerRuntime.Pipeline => _options.Pipeline is not null
+            ? new TableFormerPipelineBackend(
+                _options.Pipeline.ModelPaths.Encoder,
+                _options.Pipeline.ModelPaths.BboxDecoder,
+                _options.Pipeline.ModelPaths.Decoder)
+            : throw new InvalidOperationException("Pipeline model paths are not configured"),
+        TableFormerRuntime.OptimizedPipeline => _options.Pipeline is not null
+            ? new TableFormerOptimizedPipelineBackend(
+                _options.Pipeline.ModelPaths.Encoder,
+                _options.Pipeline.ModelPaths.BboxDecoder,
+                _options.Pipeline.ModelPaths.Decoder)
+            : throw new InvalidOperationException("Pipeline model paths are not configured"),
         _ => throw new ArgumentOutOfRangeException(nameof(runtime), runtime, "Unsupported runtime")
     };
 }

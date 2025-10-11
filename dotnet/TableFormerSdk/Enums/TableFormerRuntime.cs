@@ -5,7 +5,9 @@ public enum TableFormerRuntime
     Auto,
     Onnx,
     Ort,
-    OpenVino
+    OpenVino,
+    Pipeline,
+    OptimizedPipeline
 }
 
 public enum TableFormerModelVariant
