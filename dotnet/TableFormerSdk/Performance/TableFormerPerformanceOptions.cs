@@ -47,7 +47,7 @@ public sealed class TableFormerPerformanceOptions
     private static IReadOnlyList<TableFormerRuntime> BuildRuntimePriority(IEnumerable<TableFormerRuntime>? runtimePriority)
     {
         var ordered = runtimePriority is null
-            ? Array.Empty<TableFormerRuntime>()
+            ? new List<TableFormerRuntime>()
             : runtimePriority.Where(r => r != TableFormerRuntime.Auto).Distinct().ToList();
 
         return new ReadOnlyCollection<TableFormerRuntime>(ordered);

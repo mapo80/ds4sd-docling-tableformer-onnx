@@ -19,13 +19,13 @@ internal sealed class TableFormerPipelineBackend : ITableFormerBackend, IDisposa
     private readonly string _decoderInputName;
 
     // OTTIMIZZAZIONE: Memory pooling per ridurre GC
-    private readonly object _tensorLock = new object();
-    private DenseTensor<float>? _pooledEncoderTensor;
-    private DenseTensor<float>? _pooledBboxInputTensor;
+    private static readonly object _tensorLock = new object();
+    private static DenseTensor<float>? _pooledEncoderTensor;
+    private static DenseTensor<float>? _pooledBboxInputTensor;
 
     // OTTIMIZZAZIONE: Caching stati interni
-    private float[]? _cachedEncoderOutput;
-    private readonly object _cacheLock = new object();
+    private static float[]? _cachedEncoderOutput;
+    private static readonly object _cacheLock = new object();
 
     private bool _disposed;
 

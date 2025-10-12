@@ -10,14 +10,14 @@ using TableFormerSdk.Rendering;
 
 namespace TableFormerSdk;
 
-public sealed class TableFormerSdk : IDisposable
+public sealed class TableFormer : IDisposable
 {
     private readonly TableFormerSdkOptions _options;
     private readonly BackendRegistry _backendRegistry;
     private readonly OverlayRenderer _overlayRenderer;
     private readonly TableFormerPerformanceAdvisor _performanceAdvisor;
 
-    public TableFormerSdk(TableFormerSdkOptions options)
+    public TableFormer(TableFormerSdkOptions options)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _backendRegistry = new BackendRegistry(new DefaultBackendFactory(_options));

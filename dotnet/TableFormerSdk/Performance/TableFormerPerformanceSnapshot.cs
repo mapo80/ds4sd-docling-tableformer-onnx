@@ -13,14 +13,7 @@ public sealed record TableFormerPerformanceSnapshot(
     double BestLatencyMilliseconds,
     double LastLatencyMilliseconds)
 {
-    public override string ToString() => string.Create(
-        CultureInfo.InvariantCulture,
-        "{0}/{1}: n={2}, avg={3:F3} ms, best={4:F3} ms",
-        Runtime,
-        Variant,
-        WindowSampleCount,
-        AverageLatencyMilliseconds,
-        BestLatencyMilliseconds);
+    public override string ToString() => $"{Runtime}/{Variant}: n={WindowSampleCount}, avg={AverageLatencyMilliseconds:F3} ms, best={BestLatencyMilliseconds:F3} ms, last={LastLatencyMilliseconds:F3} ms";
 
     public TimeSpan AverageLatency => TimeSpan.FromMilliseconds(AverageLatencyMilliseconds);
 

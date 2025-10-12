@@ -30,8 +30,7 @@ internal sealed class DefaultBackendFactory : ITableFormerBackendFactory
         TableFormerRuntime.OptimizedPipeline => _options.Pipeline is not null
             ? new TableFormerOptimizedPipelineBackend(
                 _options.Pipeline.ModelPaths.Encoder,
-                _options.Pipeline.ModelPaths.BboxDecoder,
-                _options.Pipeline.ModelPaths.Decoder)
+                _options.Pipeline.ModelPaths.BboxDecoder)
             : throw new InvalidOperationException("Pipeline model paths are not configured"),
         _ => throw new ArgumentOutOfRangeException(nameof(runtime), runtime, "Unsupported runtime")
     };

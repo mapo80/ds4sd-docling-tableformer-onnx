@@ -90,7 +90,7 @@ internal sealed class TableFormerOptimizedPipelineBackend : ITableFormerBackend,
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int GetImageHash(SKBitmap image)
+    private static int GetImageHash(SKBitmap image)
     {
         // Hash semplice basato su dimensioni e primi pixel
         unchecked
@@ -150,12 +150,12 @@ internal sealed class TableFormerOptimizedPipelineBackend : ITableFormerBackend,
         // Resize ultra-ottimizzato
         using var resized = bitmap.Resize(new SKImageInfo(448, 448), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
 
-        var pixels = resized.GetPixelSpan();
         const float inv255 = 1.0f / 255.0f;
 
         // Processamento parallelo per canali
         Parallel.For(0, 448, y =>
         {
+            var pixels = resized.GetPixelSpan();
             for (int x = 0; x < 448; x++)
             {
                 int pixelIndex = (y * 448 + x) * 4;
@@ -197,7 +197,10 @@ internal sealed class TableFormerOptimizedPipelineBackend : ITableFormerBackend,
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
 
         _encoderSession.Dispose();
         _bboxDecoderSession.Dispose();

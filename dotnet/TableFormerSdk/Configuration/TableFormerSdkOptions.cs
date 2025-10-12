@@ -52,7 +52,7 @@ public sealed class TableFormerSdkOptions
     {
         if (!_supportedLanguages.Contains(language))
         {
-            throw new NotSupportedException(string.Format(TableFormerConstants.UnsupportedLanguageMessage, language));
+            throw new NotSupportedException($"Language '{language}' is not supported");
         }
     }
 

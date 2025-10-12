@@ -21,10 +21,7 @@ internal sealed class BackendRegistry : IDisposable
 
     public void RegisterBackend(TableFormerRuntime runtime, TableFormerModelVariant variant, ITableFormerBackend backend)
     {
-        if (backend is null)
-        {
-            throw new ArgumentNullException(nameof(backend));
-        }
+        ArgumentNullException.ThrowIfNull(backend);
 
         if (runtime == TableFormerRuntime.Auto)
         {

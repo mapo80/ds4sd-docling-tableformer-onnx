@@ -69,7 +69,8 @@ internal sealed class OpenVinoBackend : ITableFormerBackend, IDisposable
             }
         }
 
-        using var tensor = new Tensor(new Shape(new long[] { 1, 3, height, width }), data);
+        using var shape = new Shape(new long[] { 1, 3, height, width });
+        using var tensor = new Tensor(shape, data);
         _request.set_tensor(_inputName, tensor);
         _request.infer();
 
