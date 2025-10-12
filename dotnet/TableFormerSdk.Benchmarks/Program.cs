@@ -82,14 +82,14 @@ public class TableFormerPerformanceAnalyzer
             pipeline: new PipelineModelPaths(encoderPath, bboxDecoderPath, decoderPath)
         );
 
-        using var sdk = new TableFormerSdk(options);
+        using var sdk = new TableFormer(options);
 
         var stopwatch = Stopwatch.StartNew();
         var result = sdk.Process(
             imagePath: imagePath,
             overlay: false,
-            runtime: TableFormerRuntime.Pipeline,
-            variant: TableFormerModelVariant.Fast
+            variant: TableFormerModelVariant.Fast,
+            runtime: TableFormerRuntime.Pipeline
         );
         stopwatch.Stop();
 

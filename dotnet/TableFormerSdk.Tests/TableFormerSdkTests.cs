@@ -9,7 +9,7 @@ using TableFormerSdk.Configuration;
 using TableFormerSdk.Enums;
 using TableFormerSdk.Models;
 using TableFormerSdk.Performance;
-using TableFormerClient = TableFormerSdk.TableFormerSdk;
+using TableFormerClient = TableFormerSdk.TableFormer;
 using Xunit;
 
 namespace TableFormerSdk.Tests;
@@ -87,14 +87,14 @@ public class TableFormerSdkTests
     public void Process_EmptyPath_Throws()
     {
         var sdk = CreateSdkWithFakeBackend();
-        Assert.Throws<ArgumentException>(() => sdk.Process("", false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast));
+        Assert.Throws<ArgumentException>(() => sdk.Process("", false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx));
     }
 
     [Fact]
     public void Process_MissingImage_Throws()
     {
         var sdk = CreateSdkWithFakeBackend();
-        Assert.Throws<FileNotFoundException>(() => sdk.Process("missing.png", false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast));
+        Assert.Throws<FileNotFoundException>(() => sdk.Process("missing.png", false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx));
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class TableFormerSdkTests
     {
         var sdk = CreateSdkWithFakeBackend();
         var imagePath = CreateSampleImage();
-        var result = sdk.Process(imagePath, true, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast);
+        var result = sdk.Process(imagePath, true, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx);
         Assert.NotNull(result.OverlayImage);
         Assert.Single(result.Regions);
         Assert.Equal(TableFormerRuntime.Onnx, result.Runtime);
@@ -115,7 +115,7 @@ public class TableFormerSdkTests
     {
         var sdk = CreateSdkWithFakeBackend();
         var imagePath = CreateSampleImage();
-        var result = sdk.Process(imagePath, false, TableFormerRuntime.Onnx, TableFormerModelVariant.Fast);
+        var result = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Onnx);
         Assert.Null(result.OverlayImage);
     }
 
@@ -133,9 +133,9 @@ public class TableFormerSdkTests
 
         var imagePath = CreateSampleImage();
 
-        var first = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
-        var second = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
-        var third = sdk.Process(imagePath, false, TableFormerRuntime.Auto, TableFormerModelVariant.Fast);
+        var first = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
+        var second = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
+        var third = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
 
         Assert.Equal(TableFormerRuntime.Onnx, first.Runtime);
         Assert.Equal(TableFormerRuntime.OpenVino, second.Runtime);

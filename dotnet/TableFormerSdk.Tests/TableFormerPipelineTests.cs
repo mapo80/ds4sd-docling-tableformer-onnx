@@ -40,14 +40,14 @@ public sealed class TableFormerPipelineTests : IDisposable
             pipeline: new PipelineModelPaths(encoderPath, bboxDecoderPath, decoderPath)
         );
 
-        using var sdk = new TableFormerSdk(options);
+        using var sdk = new TableFormer(options);
 
         // Act
         var result = sdk.Process(
             imagePath: _testImagePath,
             overlay: false,
-            runtime: TableFormerRuntime.Pipeline,
-            variant: TableFormerModelVariant.Fast
+            variant: TableFormerModelVariant.Fast,
+            runtime: TableFormerRuntime.Pipeline
         );
 
         // Assert
@@ -112,7 +112,7 @@ public sealed class TableFormerPipelineTests : IDisposable
             {
                 id = index,
                 confidence = 0.5f, // Placeholder - il parser non restituisce confidence
-                label = "Text", // Placeholder - il parser non restituisce label
+                label = region.Label,
                 bbox = new
                 {
                     left = region.X,

@@ -28,7 +28,7 @@ var annotations = JsonSerializer.Deserialize<List<SampleAnnotation>>(json, new J
 }) ?? throw new InvalidOperationException("Unable to parse annotation file");
 
 var options = new TableFormerSdkOptions(new TableFormerModelPaths("dummy.onnx", null));
-using var sdk = new TableFormerSdk.TableFormerSdk(options);
+using var sdk = new TableFormer(options);
 var annotationBackend = new AnnotationBackend(annotations);
 
 foreach (var runtime in new[] { TableFormerRuntime.Onnx, TableFormerRuntime.OpenVino })
@@ -77,7 +77,7 @@ foreach (var annotation in annotations)
                 && runtime.Variant == TableFormerModelVariant.Fast
                 && run == 0;
             var watch = Stopwatch.StartNew();
-            var result = sdk.Process(imagePath, requestOverlay, runtime.Runtime, runtime.Variant);
+            var result = sdk.Process(imagePath, requestOverlay, runtime.Variant, runtime.Runtime);
             watch.Stop();
             lastResult = result;
 
