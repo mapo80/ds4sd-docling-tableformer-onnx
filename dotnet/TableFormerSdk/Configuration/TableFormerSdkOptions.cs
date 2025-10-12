@@ -14,14 +14,12 @@ public sealed class TableFormerSdkOptions
 
     public TableFormerSdkOptions(
         TableFormerModelPaths onnx,
-        PipelineModelPaths? pipeline = null,
         TableFormerLanguage defaultLanguage = TableFormerLanguage.English,
         IEnumerable<TableFormerLanguage>? supportedLanguages = null,
         TableVisualizationOptions? visualizationOptions = null,
         TableFormerPerformanceOptions? performanceOptions = null)
     {
         Onnx = onnx ?? throw new ArgumentNullException(nameof(onnx));
-        Pipeline = pipeline;
 
         _supportedLanguages = BuildSupportedLanguages(defaultLanguage, supportedLanguages);
         DefaultLanguage = defaultLanguage;
@@ -31,8 +29,6 @@ public sealed class TableFormerSdkOptions
     }
 
     public TableFormerModelPaths Onnx { get; }
-
-    public PipelineModelPaths? Pipeline { get; }
 
     public TableFormerLanguage DefaultLanguage { get; }
 
@@ -63,15 +59,6 @@ public sealed class TableFormerSdkOptions
         return new ReadOnlyCollection<TableFormerLanguage>(languages);
     }
 
-    private IReadOnlyList<TableFormerRuntime> BuildAvailableRuntimes()
-    {
-        var runtimes = new List<TableFormerRuntime> { TableFormerRuntime.Onnx };
-        if (Pipeline is not null)
-        {
-            runtimes.Add(TableFormerRuntime.Pipeline);
-            runtimes.Add(TableFormerRuntime.OptimizedPipeline);
-        }
-
-        return new ReadOnlyCollection<TableFormerRuntime>(runtimes);
-    }
+    private static IReadOnlyList<TableFormerRuntime> BuildAvailableRuntimes()
+        => new ReadOnlyCollection<TableFormerRuntime>(new[] { TableFormerRuntime.Onnx });
 }

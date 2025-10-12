@@ -94,13 +94,20 @@ using TableFormerSdk.Configuration;
 using TableFormerSdk.Enums;
 using TableFormerSdk.Performance;
 
+var modelRoot = Path.Combine(AppContext.BaseDirectory, "models", "tableformer-onnx");
+var fastPaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_fast");
+TableFormerVariantModelPaths? accuratePaths = null;
+try
+{
+    accuratePaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_accurate");
+}
+catch (FileNotFoundException)
+{
+    Console.WriteLine("Accurate variant not available – falling back to Fast only.");
+}
+
 var options = new TableFormerSdkOptions(
-    onnx: new TableFormerModelPaths(
-        fastModelPath: "models/heron-optimized.onnx",
-        accurateModelPath: null),
-    openVino: new OpenVinoModelPaths(
-        fastModelXmlPath: "models/ov-ir-fp16/heron-optimized.xml",
-        accurateModelXmlPath: null),
+    onnx: new TableFormerModelPaths(fastPaths, accuratePaths),
     supportedLanguages: new[]
     {
         TableFormerLanguage.English,
@@ -114,7 +121,6 @@ var options = new TableFormerSdkOptions(
         minimumSamples: 2,
         runtimePriority: new[]
         {
-            TableFormerRuntime.OpenVino,
             TableFormerRuntime.Onnx
         }));
 
@@ -134,30 +140,10 @@ Console.WriteLine($"Runtime: {result.Runtime} Avg={result.PerformanceSnapshot.Av
 result.OverlayImage?.Encode(SKEncodedImageFormat.Png, 90)
     .SaveTo(File.OpenWrite("overlay.png"));
 ```
-> Nota: i percorsi dei modelli vengono validati in fase di costruzione tramite `TableFormerModelPaths` e `OpenVinoModelPaths`,
-> che verificano anche la presenza del file `.bin` associato agli IR OpenVINO pubblicati nella release GitHub (vedi `models/ov-ir-fp16/heron-optimized.xml`).
+> Nota: i percorsi dei modelli vengono validati in fase di costruzione tramite `TableFormerModelPaths`,
+> che verifica la presenza di tutti i componenti ONNX (`encoder`, `tag_transformer_*`, `bbox_decoder`, `config.json`, `wordmap.json`) per ciascuna variante.
 
-I pacchetti NuGet di riferimento includono `Microsoft.ML.OnnxRuntime`, `OpenVINO.CSharp.API`, `OpenVINO.runtime.ubuntu.24-x86_64` e `SkiaSharp`.
-
-### Benchmark runtime TableFormer (.NET)
-Abbiamo eseguito l'applicazione `TableFormerSdk.Benchmarks` su due immagini del dataset FinTabNet (cartella `dataset/FinTabNet/benchmark`) utilizzando cinque inferenze utili per immagine dopo un warm-up per ciascun runtime.【ebde9c†L1-L9】【5f08a6†L1-L9】 I modelli provengono dalla release GitHub: `models/heron-optimized.onnx` per ONNX Runtime e l'IR nativo `models/ov-ir-fp16/heron-optimized.xml` per OpenVINO.
-
-```bash
-# ONNX Runtime (modello ONNX FP32)
-dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
-  --engine Onnx --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
-  --images dataset/FinTabNet/benchmark --output results/benchmarks \
-  --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
-
-# OpenVINO (IR FP16 nativo)
-dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
-  --engine OpenVino --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
-  --openvino-fast models/ov-ir-fp16/heron-optimized.xml \
-  --images dataset/FinTabNet/benchmark --output results/benchmarks \
-  --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
-```
+I pacchetti NuGet di riferimento includono `Microsoft.ML.OnnxRuntime` e `SkiaSharp`.
 
 Le medie aritmetiche (in millisecondi) sulle cinque misurazioni utili sono riassunte nella tabella seguente. I CSV generati includono ora il runtime realmente utilizzato (`filename,runtime,ms`) perché l'SDK restituisce la latenza nativa attraverso `TableStructureResult.InferenceTime`.
 

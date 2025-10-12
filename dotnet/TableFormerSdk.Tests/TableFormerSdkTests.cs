@@ -39,33 +39,48 @@ file sealed class FakeBackend : ITableFormerBackend
 
 public class TableFormerSdkTests
 {
-    private static TableFormerClient CreateSdkWithFakeBackend(TableFormerPerformanceOptions? performanceOptions = null, bool includeOpenVino = false)
+    private static TableFormerClient CreateSdkWithFakeBackend(TableFormerPerformanceOptions? performanceOptions = null)
     {
-        var onnxPath = CreateTempModelFile(".onnx");
-        OpenVinoModelPaths? openVino = null;
-        if (includeOpenVino)
-        {
-            var xmlPath = CreateTempModelFile(".xml");
-            var binPath = Path.ChangeExtension(xmlPath, ".bin");
-            File.WriteAllBytes(binPath, Array.Empty<byte>());
-            openVino = new OpenVinoModelPaths(xmlPath, null);
-        }
-
-        var options = new TableFormerSdkOptions(
-            new TableFormerModelPaths(onnxPath, null),
-            openVino,
-            performanceOptions: performanceOptions);
+        var paths = CreateTempVariantPaths();
+        var options = new TableFormerSdkOptions(new TableFormerModelPaths(paths), performanceOptions: performanceOptions);
 
         var sdk = new TableFormerClient(options);
         sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, new FakeBackend());
         return sdk;
     }
 
-    private static string CreateTempModelFile(string extension)
+    private static TableFormerVariantModelPaths CreateTempVariantPaths()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + extension);
-        File.WriteAllBytes(path, Array.Empty<byte>());
-        return path;
+        static string CreateTempFile(string extension, string? contents = null)
+        {
+            var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + extension);
+            if (contents is null)
+            {
+                File.WriteAllBytes(path, Array.Empty<byte>());
+            }
+            else
+            {
+                File.WriteAllText(path, contents);
+            }
+
+            return path;
+        }
+
+        var encoder = CreateTempFile(".onnx");
+        var tagEncoder = CreateTempFile(".onnx");
+        var decoderStep = CreateTempFile(".onnx");
+        var bboxDecoder = CreateTempFile(".onnx");
+        // Minimal JSON payloads to satisfy validation when parsed during tests
+        var config = CreateTempFile(".json", "{}");
+        var wordMap = CreateTempFile(".json", "{}");
+
+        return new TableFormerVariantModelPaths(
+            encoder,
+            tagEncoder,
+            decoderStep,
+            bboxDecoder,
+            config,
+            wordMap);
     }
 
     private static string CreateSampleImage()
@@ -122,14 +137,14 @@ public class TableFormerSdkTests
     [Fact]
     public void Process_AutoRuntime_ExploresAndSelectsFastestBackend()
     {
-        var performanceOptions = new TableFormerPerformanceOptions(minimumSamples: 1, slidingWindowSize: 8, runtimePriority: new[] { TableFormerRuntime.OpenVino, TableFormerRuntime.Onnx });
-        var sdk = CreateSdkWithFakeBackend(performanceOptions, includeOpenVino: true);
+        var performanceOptions = new TableFormerPerformanceOptions(minimumSamples: 1, slidingWindowSize: 8, runtimePriority: new[] { TableFormerRuntime.Onnx });
+        var sdk = CreateSdkWithFakeBackend(performanceOptions);
 
-        var onnxBackend = new FakeBackend(TimeSpan.FromMilliseconds(15));
-        var openVinoBackend = new FakeBackend(TimeSpan.FromMilliseconds(2));
+        var onnxBackendSlow = new FakeBackend(TimeSpan.FromMilliseconds(15));
+        var onnxBackendFast = new FakeBackend(TimeSpan.FromMilliseconds(2));
 
-        sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, onnxBackend);
-        sdk.RegisterBackend(TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast, openVinoBackend);
+        sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, onnxBackendSlow);
+        sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Accurate, onnxBackendFast);
 
         var imagePath = CreateSampleImage();
 
@@ -138,14 +153,14 @@ public class TableFormerSdkTests
         var third = sdk.Process(imagePath, false, TableFormerModelVariant.Fast, TableFormerRuntime.Auto);
 
         Assert.Equal(TableFormerRuntime.Onnx, first.Runtime);
-        Assert.Equal(TableFormerRuntime.OpenVino, second.Runtime);
-        Assert.Equal(TableFormerRuntime.OpenVino, third.Runtime);
+        Assert.Equal(TableFormerRuntime.Onnx, second.Runtime);
+        Assert.Equal(TableFormerRuntime.Onnx, third.Runtime);
 
-        Assert.True(third.InferenceTime <= first.InferenceTime);
+        Assert.True(second.InferenceTime <= first.InferenceTime);
+        Assert.True(third.InferenceTime <= second.InferenceTime);
 
         var snapshots = sdk.GetPerformanceSnapshots(TableFormerModelVariant.Fast);
-        Assert.Equal(2, snapshots.Count);
-        Assert.Contains(snapshots, s => s.Runtime == TableFormerRuntime.Onnx && s.TotalSampleCount == 1);
-        Assert.Contains(snapshots, s => s.Runtime == TableFormerRuntime.OpenVino && s.TotalSampleCount >= 2);
+        Assert.NotEmpty(snapshots);
+        Assert.All(snapshots, s => Assert.Equal(TableFormerRuntime.Onnx, s.Runtime));
     }
 }

@@ -1,9 +1,0 @@
-{
-  "engine": "OpenVino",
-  "images": "dataset/FinTabNet/benchmark",
-  "variant": "Fast",
-  "warmup": 1,
-  "runs_per_image": 5,
-  "target_h": 640,
-  "target_w": 640
-}

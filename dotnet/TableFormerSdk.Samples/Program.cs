@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using TableFormerSdk;
+using TableFormerSdk.Configuration;
 
 var repoRoot = ResolveRepoRoot();
 var datasetDir = Path.Combine(repoRoot, "dataset", "FinTabNet");
@@ -27,14 +28,26 @@ var annotations = JsonSerializer.Deserialize<List<SampleAnnotation>>(json, new J
     PropertyNameCaseInsensitive = true
 }) ?? throw new InvalidOperationException("Unable to parse annotation file");
 
-var options = new TableFormerSdkOptions(new TableFormerModelPaths("dummy.onnx", null));
+var modelRoot = Path.Combine(repoRoot, "models", "tableformer-onnx");
+var fastPaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_fast");
+TableFormerVariantModelPaths? accuratePaths = null;
+try
+{
+    accuratePaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_accurate");
+}
+catch (FileNotFoundException)
+{
+    Console.Error.WriteLine("Accurate TableFormer models not found; only fast variant will be available.");
+}
+
+var options = new TableFormerSdkOptions(new TableFormerModelPaths(fastPaths, accuratePaths));
 using var sdk = new TableFormer(options);
 var annotationBackend = new AnnotationBackend(annotations);
 
-foreach (var runtime in new[] { TableFormerRuntime.Onnx, TableFormerRuntime.OpenVino })
+sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, annotationBackend);
+if (accuratePaths is not null)
 {
-    sdk.RegisterBackend(runtime, TableFormerModelVariant.Fast, annotationBackend);
-    sdk.RegisterBackend(runtime, TableFormerModelVariant.Accurate, annotationBackend);
+    sdk.RegisterBackend(TableFormerRuntime.Onnx, TableFormerModelVariant.Accurate, annotationBackend);
 }
 
 var outputDir = Path.Combine(repoRoot, "results", "tableformer-net-sample");
@@ -45,10 +58,13 @@ var perfEntries = new List<PerformanceReportEntry>();
 var runtimeVariants = new (TableFormerRuntime Runtime, TableFormerModelVariant Variant, string Label)[]
 {
     (TableFormerRuntime.Onnx, TableFormerModelVariant.Fast, "onnx_fast"),
-    (TableFormerRuntime.Onnx, TableFormerModelVariant.Accurate, "onnx_accurate"),
-    (TableFormerRuntime.OpenVino, TableFormerModelVariant.Fast, "openvino_fast"),
-    (TableFormerRuntime.OpenVino, TableFormerModelVariant.Accurate, "openvino_accurate"),
 };
+
+if (accuratePaths is not null)
+{
+    runtimeVariants = runtimeVariants.Append((TableFormerRuntime.Onnx, TableFormerModelVariant.Accurate, "onnx_accurate")).ToArray();
+}
+
 var globalDurations = runtimeVariants.ToDictionary(cfg => cfg.Label, _ => new List<double>());
 
 foreach (var annotation in annotations)
@@ -155,7 +171,7 @@ File.WriteAllText(reportPath, JsonSerializer.Serialize(reportEntries, new JsonSe
 Console.WriteLine($"Report saved to {reportPath}");
 
 var perfReportPath = Path.Combine(outputDir, "perf_comparison.json");
-var overallSummaries = runtimeVariants.Select(cfg => new OverallRuntimeSummary(
+    var overallSummaries = runtimeVariants.Select(cfg => new OverallRuntimeSummary(
     cfg.Runtime.ToString().ToLowerInvariant(),
     cfg.Variant.ToString().ToLowerInvariant(),
     cfg.Label,
