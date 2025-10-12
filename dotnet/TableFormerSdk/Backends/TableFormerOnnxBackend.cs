@@ -100,16 +100,29 @@ internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
             var memory = _components.RunTagTransformerEncoder(encoderOutput);
 
             // Step 4: Generate OTSL tags autoregressively
-            var tagHiddenStates = _autoregressive.GenerateTags(memory, encoderMask);
+            var autoregressiveResult = _autoregressive.GenerateTags(memory, encoderMask);
+
+            // Return empty if no cells generated
+            if (autoregressiveResult.TagHiddenStates.Count == 0)
+            {
+                return new List<TableRegion>();
+            }
 
             // Step 5: Run bbox decoder to get bounding boxes
-            var (bboxClasses, bboxCoords) = _components.RunBboxDecoder(encoderOutput, CreateTagHiddensTensor(tagHiddenStates));
+            var (bboxClasses, bboxCoords) = _components.RunBboxDecoder(
+                encoderOutput,
+                CreateTagHiddensTensor(autoregressiveResult.TagHiddenStates));
 
             // Step 6: Parse OTSL and convert to table regions
-            var otslTokens = GenerateOtslSequence(tagHiddenStates.Count);
-            var tableStructure = OtslParser.ParseOtsl(otslTokens);
+            var tableStructure = OtslParser.ParseOtsl(autoregressiveResult.GeneratedTokens);
 
-            var regions = ConvertToTableRegions(tableStructure, bboxCoords, new BoundingBox(0, 0, image.Width, image.Height), image.Width, image.Height);
+            var regions = ConvertToTableRegions(
+                tableStructure,
+                bboxClasses,
+                bboxCoords,
+                new BoundingBox(0, 0, image.Width, image.Height),
+                image.Width,
+                image.Height);
 
             return regions;
         }
@@ -225,22 +238,13 @@ internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
         return tensor;
     }
 
-    private static List<string> GenerateOtslSequence(int cellCount)
-    {
-        var tokens = new List<string> { "<start>" };
-
-        // Generate a simple OTSL sequence - this is a simplified version
-        for (int i = 0; i < cellCount; i++)
-        {
-            tokens.Add("fcel");
-        }
-
-        tokens.Add("<end>");
-        return tokens;
-    }
-
+    /// <summary>
+    /// Convert table structure and bbox predictions to TableRegion list.
+    /// Applies softmax to bbox_classes and filters cells based on confidence threshold.
+    /// </summary>
     private static IReadOnlyList<TableRegion> ConvertToTableRegions(
         OtslParser.TableStructure tableStructure,
+        DenseTensor<float> bboxClasses,
         DenseTensor<float> bboxCoords,
         BoundingBox tableBounds,
         int imageWidth,
@@ -248,46 +252,124 @@ internal sealed class TableFormerOnnxBackend : ITableFormerBackend, IDisposable
     {
         var regions = new List<TableRegion>();
 
+        // Convert tensors to arrays for easier access
+        var classesArray = bboxClasses.ToArray();
         var coordsArray = bboxCoords.ToArray();
-        var coordIndex = 0;
+
+        // Get number of classes from tensor shape: (num_cells, num_classes)
+        var numCells = bboxClasses.Dimensions[0];
+        var numClasses = bboxClasses.Dimensions.Length > 1 ? bboxClasses.Dimensions[1] : 1;
+
+        var cellIndex = 0;
 
         foreach (var row in tableStructure.Rows)
         {
             foreach (var cell in row)
             {
-                if (cell.CellType != "linked" && cell.CellType != "spanned" && coordIndex + 3 < coordsArray.Length)
+                // Skip linked and spanned cells (they don't have their own bbox)
+                if (cell.CellType == "linked" || cell.CellType == "spanned")
                 {
-                    // Get normalized coordinates (cx, cy, w, h)
-                    var cx = coordsArray[coordIndex];
-                    var cy = coordsArray[coordIndex + 1];
-                    var w = coordsArray[coordIndex + 2];
-                    var h = coordsArray[coordIndex + 3];
-
-                    // Convert from normalized [0,1] to table coordinates
-                    var left = tableBounds.Left + (cx - w / 2) * tableBounds.Width;
-                    var top = tableBounds.Top + (cy - h / 2) * tableBounds.Height;
-                    var right = left + w * tableBounds.Width;
-                    var bottom = top + h * tableBounds.Height;
-
-                    // Clamp to table boundaries
-                    left = Math.Max(tableBounds.Left, Math.Min(tableBounds.Right, left));
-                    top = Math.Max(tableBounds.Top, Math.Min(tableBounds.Bottom, top));
-                    right = Math.Max(tableBounds.Left, Math.Min(tableBounds.Right, right));
-                    bottom = Math.Max(tableBounds.Top, Math.Min(tableBounds.Bottom, bottom));
-
-                    regions.Add(new TableRegion(
-                        (float)((left - tableBounds.Left) / tableBounds.Width),
-                        (float)((top - tableBounds.Top) / tableBounds.Height),
-                        (float)((right - left) / tableBounds.Width),
-                        (float)((bottom - top) / tableBounds.Height),
-                        $"cell_{coordIndex / 4}"));
-
-                    coordIndex += 4;
+                    continue;
                 }
+
+                // Check if we have bbox data for this cell
+                if (cellIndex >= numCells)
+                {
+                    break;
+                }
+
+                // Apply softmax to get class probabilities
+                var classProbabilities = ApplySoftmax(classesArray, cellIndex * numClasses, numClasses);
+
+                // Class 0: background, Class 1+: cells (typically class 1 = cell, class 2 = header)
+                // Filter out cells with low confidence (background probability > 0.5)
+                const float confidenceThreshold = 0.5f;
+                if (classProbabilities[0] > confidenceThreshold)
+                {
+                    cellIndex++;
+                    continue; // Skip this cell, it's likely background
+                }
+
+                // Get bbox coordinates (cx, cy, w, h) - normalized [0,1]
+                var coordOffset = cellIndex * 4;
+                if (coordOffset + 3 >= coordsArray.Length)
+                {
+                    break;
+                }
+
+                var cx = coordsArray[coordOffset];
+                var cy = coordsArray[coordOffset + 1];
+                var w = coordsArray[coordOffset + 2];
+                var h = coordsArray[coordOffset + 3];
+
+                // Convert from normalized [0,1] center coordinates to absolute pixel coordinates
+                var absLeft = tableBounds.Left + (cx - w / 2) * tableBounds.Width;
+                var absTop = tableBounds.Top + (cy - h / 2) * tableBounds.Height;
+                var absRight = absLeft + w * tableBounds.Width;
+                var absBottom = absTop + h * tableBounds.Height;
+
+                // Clamp to table boundaries
+                absLeft = Math.Max(tableBounds.Left, Math.Min(tableBounds.Right, absLeft));
+                absTop = Math.Max(tableBounds.Top, Math.Min(tableBounds.Bottom, absTop));
+                absRight = Math.Max(tableBounds.Left, Math.Min(tableBounds.Right, absRight));
+                absBottom = Math.Max(tableBounds.Top, Math.Min(tableBounds.Bottom, absBottom));
+
+                // Convert to normalized coordinates relative to table bounds
+                var normX = (absLeft - tableBounds.Left) / tableBounds.Width;
+                var normY = (absTop - tableBounds.Top) / tableBounds.Height;
+                var normWidth = (absRight - absLeft) / tableBounds.Width;
+                var normHeight = (absBottom - absTop) / tableBounds.Height;
+
+                // Clamp normalized coordinates to [0, 1]
+                normX = Math.Max(0, Math.Min(1, normX));
+                normY = Math.Max(0, Math.Min(1, normY));
+                normWidth = Math.Max(0, Math.Min(1 - normX, normWidth));
+                normHeight = Math.Max(0, Math.Min(1 - normY, normHeight));
+
+                regions.Add(new TableRegion(
+                    (float)normX,
+                    (float)normY,
+                    (float)normWidth,
+                    (float)normHeight,
+                    $"cell_{cellIndex}"));
+
+                cellIndex++;
             }
         }
 
         return regions;
+    }
+
+    /// <summary>
+    /// Apply softmax to a slice of the array to get probabilities.
+    /// </summary>
+    private static float[] ApplySoftmax(float[] array, int offset, int length)
+    {
+        var probabilities = new float[length];
+        var maxLogit = float.NegativeInfinity;
+
+        // Find max for numerical stability
+        for (int i = 0; i < length; i++)
+        {
+            maxLogit = Math.Max(maxLogit, array[offset + i]);
+        }
+
+        // Compute exp and sum
+        var sumExp = 0.0f;
+        for (int i = 0; i < length; i++)
+        {
+            var exp = (float)Math.Exp(array[offset + i] - maxLogit);
+            probabilities[i] = exp;
+            sumExp += exp;
+        }
+
+        // Normalize
+        for (int i = 0; i < length; i++)
+        {
+            probabilities[i] /= sumExp;
+        }
+
+        return probabilities;
     }
 
     public void Dispose()

@@ -283,4 +283,90 @@ public class TableFormerSdkTests
         var endToken = wordMap.GetTagToken(end);
         Assert.Equal("<end>", endToken);
     }
+
+    [Fact]
+    public void OtslParser_ParsesSimpleTable()
+    {
+        // Simple 2x2 table: fcel fcel nl fcel fcel
+        var tokens = new[] { "<start>", "fcel", "fcel", "nl", "fcel", "fcel", "<end>" };
+
+        var tableStructure = OtslParser.ParseOtsl(tokens);
+
+        Assert.Equal(2, tableStructure.RowCount);
+        Assert.Equal(2, tableStructure.ColCount);
+
+        // Verify first row
+        Assert.Equal(2, tableStructure.Rows[0].Count);
+        Assert.Equal("fcel", tableStructure.Rows[0][0].CellType);
+        Assert.Equal("fcel", tableStructure.Rows[0][1].CellType);
+
+        // Verify second row
+        Assert.Equal(2, tableStructure.Rows[1].Count);
+        Assert.Equal("fcel", tableStructure.Rows[1][0].CellType);
+        Assert.Equal("fcel", tableStructure.Rows[1][1].CellType);
+    }
+
+    [Fact]
+    public void OtslParser_ParsesHorizontalSpan()
+    {
+        // Table with horizontal span: fcel lcel fcel nl fcel fcel fcel
+        // Row 1: [cell spanning 2 cols] [cell]
+        // Row 2: [cell] [cell] [cell]
+        var tokens = new[] { "<start>", "fcel", "lcel", "fcel", "nl", "fcel", "fcel", "fcel", "<end>" };
+
+        var tableStructure = OtslParser.ParseOtsl(tokens);
+
+        Assert.Equal(2, tableStructure.RowCount);
+
+        // First row should have first cell with colspan=2
+        Assert.Equal(2, tableStructure.Rows[0][0].ColSpan);
+        Assert.Equal("linked", tableStructure.Rows[0][1].CellType); // Second cell is marked as linked
+
+        // Second row should have 3 separate cells
+        Assert.Equal(3, tableStructure.Rows[1].Count);
+    }
+
+    [Fact]
+    public void OtslParser_ParsesVerticalSpan()
+    {
+        // Table with vertical span: fcel ucel nl fcel xcel nl fcel fcel
+        // Row 1: [cell] [cell spanning down]
+        // Row 2: [cell] [continuation]
+        // Row 3: [cell] [cell]
+        var tokens = new[] { "<start>", "fcel", "ucel", "nl", "fcel", "xcel", "nl", "fcel", "fcel", "<end>" };
+
+        var tableStructure = OtslParser.ParseOtsl(tokens);
+
+        Assert.Equal(3, tableStructure.RowCount);
+
+        // First row, second cell should have rowspan=2
+        Assert.Equal(2, tableStructure.Rows[0][1].RowSpan);
+        Assert.Equal("ucel", tableStructure.Rows[0][1].CellType);
+
+        // Second row, second cell should be marked as spanned
+        Assert.Equal("spanned", tableStructure.Rows[1][1].CellType);
+
+        // Third row should have 2 normal cells
+        Assert.Equal(2, tableStructure.Rows[2].Count);
+    }
+
+    [Fact]
+    public void OtslParser_ParsesHeaders()
+    {
+        // Table with headers: fcel ched fcel nl fcel fcel
+        // Row 1: [header cell] [cell]
+        // Row 2: [cell] [cell]
+        var tokens = new[] { "<start>", "fcel", "ched", "fcel", "nl", "fcel", "fcel", "<end>" };
+
+        var tableStructure = OtslParser.ParseOtsl(tokens);
+
+        Assert.Equal(2, tableStructure.RowCount);
+
+        // First cell should be marked as header
+        Assert.True(tableStructure.Rows[0][0].IsHeader);
+        Assert.Equal("ched", tableStructure.Rows[0][0].CellType);
+
+        // Second cell should not be header
+        Assert.False(tableStructure.Rows[0][1].IsHeader);
+    }
 }

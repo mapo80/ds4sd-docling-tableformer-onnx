@@ -538,17 +538,18 @@ internal sealed class OtslParser
             switch (token)
             {
                 case "fcel": // First cell in row
+                    // Only add previous row if it has cells (not for first fcel)
                     if (currentRow.Count > 0)
                     {
                         table.Rows.Add(currentRow);
                         currentRow = new List<TableCell>();
+                        currentRowIndex++;
                     }
-                    currentRowIndex++;
                     currentColIndex = 0;
 
                     currentRow.Add(new TableCell
                     {
-                        Row = currentRowIndex - 1,
+                        Row = currentRowIndex,
                         Col = currentColIndex,
                         CellType = "fcel"
                     });
@@ -558,7 +559,7 @@ internal sealed class OtslParser
                 case "lcel": // Linked cell (horizontal span)
                     currentRow.Add(new TableCell
                     {
-                        Row = currentRowIndex - 1,
+                        Row = currentRowIndex,
                         Col = currentColIndex,
                         CellType = "lcel"
                     });
@@ -568,7 +569,7 @@ internal sealed class OtslParser
                 case "ecel": // Empty cell
                     currentRow.Add(new TableCell
                     {
-                        Row = currentRowIndex - 1,
+                        Row = currentRowIndex,
                         Col = currentColIndex,
                         CellType = "ecel"
                     });
@@ -578,7 +579,7 @@ internal sealed class OtslParser
                 case "ucel": // Up cell (vertical span start)
                     currentRow.Add(new TableCell
                     {
-                        Row = currentRowIndex - 1,
+                        Row = currentRowIndex,
                         Col = currentColIndex,
                         CellType = "ucel"
                     });
@@ -588,7 +589,7 @@ internal sealed class OtslParser
                 case "xcel": // Cross cell (vertical span continuation)
                     currentRow.Add(new TableCell
                     {
-                        Row = currentRowIndex - 1,
+                        Row = currentRowIndex,
                         Col = currentColIndex,
                         CellType = "xcel"
                     });
