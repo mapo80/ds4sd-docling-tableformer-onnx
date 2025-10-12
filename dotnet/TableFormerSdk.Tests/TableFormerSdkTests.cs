@@ -163,4 +163,124 @@ public class TableFormerSdkTests
         Assert.NotEmpty(snapshots);
         Assert.All(snapshots, s => Assert.Equal(TableFormerRuntime.Onnx, s.Runtime));
     }
+
+    [Fact]
+    public void FromDirectory_LoadsModelPathsCorrectly()
+    {
+        var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "models");
+
+        // Skip if models directory doesn't exist
+        if (!Directory.Exists(modelsDir))
+        {
+            return;
+        }
+
+        // Try to load Fast variant
+        var fastPaths = TableFormerVariantModelPaths.FromDirectory(modelsDir, "tableformer_fast");
+
+        Assert.NotNull(fastPaths);
+        Assert.True(File.Exists(fastPaths.EncoderPath), "Encoder ONNX file should exist");
+        Assert.True(File.Exists(fastPaths.TagEncoderPath), "Tag encoder ONNX file should exist");
+        Assert.True(File.Exists(fastPaths.DecoderStepPath), "Decoder step ONNX file should exist");
+        Assert.True(File.Exists(fastPaths.BboxDecoderPath), "BBox decoder ONNX file should exist");
+        Assert.True(File.Exists(fastPaths.ConfigPath), "Config JSON file should exist");
+        Assert.True(File.Exists(fastPaths.WordMapPath), "WordMap JSON file should exist");
+
+        // Try to load Accurate variant
+        var accuratePaths = TableFormerVariantModelPaths.FromDirectory(modelsDir, "tableformer_accurate");
+
+        Assert.NotNull(accuratePaths);
+        Assert.True(File.Exists(accuratePaths.EncoderPath), "Accurate encoder ONNX file should exist");
+        Assert.True(File.Exists(accuratePaths.TagEncoderPath), "Accurate tag encoder ONNX file should exist");
+        Assert.True(File.Exists(accuratePaths.DecoderStepPath), "Accurate decoder step ONNX file should exist");
+        Assert.True(File.Exists(accuratePaths.BboxDecoderPath), "Accurate BBox decoder ONNX file should exist");
+        Assert.True(File.Exists(accuratePaths.ConfigPath), "Accurate config JSON file should exist");
+        Assert.True(File.Exists(accuratePaths.WordMapPath), "Accurate wordMap JSON file should exist");
+    }
+
+    [Fact]
+    public void TableFormerConfig_LoadsNormalizationParametersCorrectly()
+    {
+        var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "models");
+        var configPath = Path.Combine(modelsDir, "tableformer_fast_config.json");
+
+        // Skip if config doesn't exist
+        if (!File.Exists(configPath))
+        {
+            return;
+        }
+
+        var config = TableFormerConfig.LoadFromFile(configPath);
+
+        Assert.NotNull(config);
+        Assert.NotNull(config.Dataset);
+        Assert.NotNull(config.Dataset.ImageNormalization);
+
+        var norm = config.NormalizationParameters;
+
+        // Validate PubTabNet normalization values
+        Assert.Equal(3, norm.Mean.Length);
+        Assert.Equal(3, norm.Std.Length);
+
+        // Check approximate values (PubTabNet dataset statistics)
+        Assert.True(Math.Abs(norm.Mean[0] - 0.942f) < 0.01f, "Mean[0] should be ~0.942");
+        Assert.True(Math.Abs(norm.Mean[1] - 0.942f) < 0.01f, "Mean[1] should be ~0.942");
+        Assert.True(Math.Abs(norm.Mean[2] - 0.942f) < 0.01f, "Mean[2] should be ~0.942");
+
+        Assert.True(Math.Abs(norm.Std[0] - 0.179f) < 0.01f, "Std[0] should be ~0.179");
+        Assert.True(Math.Abs(norm.Std[1] - 0.179f) < 0.01f, "Std[1] should be ~0.179");
+        Assert.True(Math.Abs(norm.Std[2] - 0.179f) < 0.01f, "Std[2] should be ~0.179");
+
+        Assert.True(norm.Enabled, "Normalization should be enabled");
+
+        // Validate target image size
+        Assert.Equal(448, config.TargetImageSize);
+
+        // Validate bbox classes
+        Assert.Equal(2, config.BboxClasses);
+    }
+
+    [Fact]
+    public void TableFormerWordMap_LoadsCorrectly()
+    {
+        var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "models");
+        var wordMapPath = Path.Combine(modelsDir, "tableformer_fast_wordmap.json");
+
+        // Skip if word map doesn't exist
+        if (!File.Exists(wordMapPath))
+        {
+            return;
+        }
+
+        var wordMap = TableFormerWordMap.LoadFromFile(wordMapPath);
+
+        Assert.NotNull(wordMap);
+        Assert.NotNull(wordMap.WordMapTag);
+
+        // Validate special tokens
+        var (start, end, pad, unk) = wordMap.GetSpecialTokens();
+
+        Assert.Equal(2, start);   // <start> should be ID 2
+        Assert.Equal(3, end);     // <end> should be ID 3
+        Assert.Equal(0, pad);     // <pad> should be ID 0
+        Assert.Equal(1, unk);     // <unk> should be ID 1
+
+        // Validate OTSL cell tokens exist
+        Assert.True(wordMap.WordMapTag.ContainsKey("fcel"), "fcel token should exist");
+        Assert.True(wordMap.WordMapTag.ContainsKey("ecel"), "ecel token should exist");
+        Assert.True(wordMap.WordMapTag.ContainsKey("lcel"), "lcel token should exist");
+        Assert.True(wordMap.WordMapTag.ContainsKey("xcel"), "xcel token should exist");
+        Assert.True(wordMap.WordMapTag.ContainsKey("ucel"), "ucel token should exist");
+        Assert.True(wordMap.WordMapTag.ContainsKey("nl"), "nl token should exist");
+
+        // Validate token count (should have 13 tag tokens)
+        Assert.Equal(13, wordMap.WordMapTag.Count);
+
+        // Test reverse lookup
+        var startToken = wordMap.GetTagToken(start);
+        Assert.Equal("<start>", startToken);
+
+        var endToken = wordMap.GetTagToken(end);
+        Assert.Equal("<end>", endToken);
+    }
 }
