@@ -17,10 +17,6 @@ internal sealed class DefaultBackendFactory : ITableFormerBackendFactory
     {
         TableFormerRuntime.Auto => throw new ArgumentException("Auto runtime must be resolved before backend creation", nameof(runtime)),
         TableFormerRuntime.Onnx => new TableFormerOnnxBackend(_options.Onnx.GetModelPath(variant)),
-        TableFormerRuntime.Ort => throw new NotSupportedException("ORT backend not yet implemented"),
-        TableFormerRuntime.OpenVino => _options.OpenVino is not null
-            ? new OpenVinoBackend(_options.OpenVino.GetModelPaths(variant).Xml)
-            : throw new InvalidOperationException("OpenVINO model paths are not configured"),
         TableFormerRuntime.Pipeline => _options.Pipeline is not null
             ? new TableFormerPipelineBackend(
                 _options.Pipeline.ModelPaths.Encoder,

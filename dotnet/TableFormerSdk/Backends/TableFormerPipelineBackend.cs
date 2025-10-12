@@ -103,10 +103,22 @@ internal sealed class TableFormerPipelineBackend : ITableFormerBackend, IDisposa
             Array.Copy(encoderOutArray, 0, bboxInputTensor.ToArray(), 0, encoderOutArray.Length);
         }
 
-        var bboxInput = NamedOnnxValue.CreateFromTensor(_bboxDecoderInputName, bboxInputTensor);
+        // Create tag_h input - initialized to zeros [batch, 512]
+        var batchSize = encoderOutTensor.Dimensions[0];
+        var tagHTensor = new DenseTensor<float>(new[] { (int)batchSize, 512 });
+        // tag_h is zero-initialized by default
 
-        using var bboxResults = _bboxDecoderSession.Run(new[] { bboxInput });
-        (bboxInput as IDisposable)?.Dispose();
+        var bboxInputs = new List<NamedOnnxValue>
+        {
+            NamedOnnxValue.CreateFromTensor("encoder_out", bboxInputTensor),
+            NamedOnnxValue.CreateFromTensor("tag_h", tagHTensor)
+        };
+
+        using var bboxResults = _bboxDecoderSession.Run(bboxInputs);
+        foreach (var input in bboxInputs)
+        {
+            (input as IDisposable)?.Dispose();
+        }
 
         // Extract bbox outputs and convert to expected format
         var classLogitsTensor = bboxResults.First(x => x.Name == "class_logits").AsTensor<float>();

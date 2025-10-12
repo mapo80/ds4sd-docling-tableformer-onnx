@@ -14,7 +14,6 @@ public sealed class TableFormerSdkOptions
 
     public TableFormerSdkOptions(
         TableFormerModelPaths onnx,
-        OpenVinoModelPaths? openVino = null,
         PipelineModelPaths? pipeline = null,
         TableFormerLanguage defaultLanguage = TableFormerLanguage.English,
         IEnumerable<TableFormerLanguage>? supportedLanguages = null,
@@ -22,7 +21,6 @@ public sealed class TableFormerSdkOptions
         TableFormerPerformanceOptions? performanceOptions = null)
     {
         Onnx = onnx ?? throw new ArgumentNullException(nameof(onnx));
-        OpenVino = openVino;
         Pipeline = pipeline;
 
         _supportedLanguages = BuildSupportedLanguages(defaultLanguage, supportedLanguages);
@@ -33,8 +31,6 @@ public sealed class TableFormerSdkOptions
     }
 
     public TableFormerModelPaths Onnx { get; }
-
-    public OpenVinoModelPaths? OpenVino { get; }
 
     public PipelineModelPaths? Pipeline { get; }
 
@@ -70,10 +66,6 @@ public sealed class TableFormerSdkOptions
     private IReadOnlyList<TableFormerRuntime> BuildAvailableRuntimes()
     {
         var runtimes = new List<TableFormerRuntime> { TableFormerRuntime.Onnx };
-        if (OpenVino is not null)
-        {
-            runtimes.Add(TableFormerRuntime.OpenVino);
-        }
         if (Pipeline is not null)
         {
             runtimes.Add(TableFormerRuntime.Pipeline);

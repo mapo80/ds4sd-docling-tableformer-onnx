@@ -4,8 +4,6 @@ public enum TableFormerRuntime
 {
     Auto,
     Onnx,
-    Ort,
-    OpenVino,
     Pipeline,
     OptimizedPipeline
 }
