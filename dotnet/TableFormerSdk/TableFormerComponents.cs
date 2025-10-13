@@ -181,13 +181,13 @@ internal sealed class TableFormerOnnxComponents : IDisposable
     public (DenseTensor<float> logits, DenseTensor<float> hiddenState) RunTagTransformerDecoderStep(
         DenseTensor<long> decodedTags,
         DenseTensor<float> memory,
-        DenseTensor<bool> encoderMask)
+        DenseTensor<bool>? encoderMask = null)
     {
+        // Note: encoder_mask is not used by the ONNX model, but kept as parameter for API compatibility
         var inputs = new[]
         {
             NamedOnnxValue.CreateFromTensor("decoded_tags", decodedTags),
-            NamedOnnxValue.CreateFromTensor("memory", memory),
-            NamedOnnxValue.CreateFromTensor("encoder_mask", encoderMask)
+            NamedOnnxValue.CreateFromTensor("memory", memory)
         };
 
         using var results = _tagTransformerDecoderStepSession.Run(inputs);
