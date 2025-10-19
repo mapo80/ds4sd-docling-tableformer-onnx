@@ -174,6 +174,16 @@ public sealed class TableFormerMutablePdfCell
     public string Text { get; set; }
 
     public TableFormerMutablePdfCell Clone() => new(Id, BoundingBox, Text);
+
+    public Dictionary<string, object?> ToDictionary()
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["id"] = Id,
+            ["bbox"] = BoundingBox.ToArray(),
+            ["text"] = Text,
+        };
+    }
 }
 
 public sealed class TableFormerMutableMatch
