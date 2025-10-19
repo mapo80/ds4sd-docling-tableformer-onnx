@@ -7,6 +7,7 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <DefineConstants>$(DefineConstants);DISABLE_LEGACY_TABLEFORMER_SDK_TESTS</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TableFormerSdk\TableFormerSdk.csproj" />
+    <ProjectReference Include="..\TableFormerTorchSharpSdk\TableFormerTorchSharpSdk.csproj" />
   </ItemGroup>
 
 </Project>

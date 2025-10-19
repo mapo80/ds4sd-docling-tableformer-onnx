@@ -6,6 +6,7 @@
 tmp*/
 models/hf-cache/
 __pycache__/
+tableformer-docling/artifacts/
 
 
 ## A streamlined .gitignore for modern .NET projects
@@ -37,6 +38,7 @@ bld/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+dotnet/artifacts_test_cache/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
