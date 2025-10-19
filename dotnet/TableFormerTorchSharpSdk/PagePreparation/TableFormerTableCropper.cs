@@ -3,10 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-
-using SkiaSharp;
 
 namespace TableFormerTorchSharpSdk.PagePreparation;
 
@@ -18,17 +15,18 @@ public sealed class TableFormerTableCropper
         FileInfo imageFile,
         IReadOnlyList<TableFormerBoundingBox>? tableBoundingBoxes = null)
     {
-        ArgumentNullException.ThrowIfNull(imageFile);
-        if (!imageFile.Exists)
-        {
-            throw new FileNotFoundException($"Image file not found: '{imageFile.FullName}'.", imageFile.FullName);
-        }
+        var decodedImage = TableFormerDecodedPageImage.Decode(imageFile);
+        return PrepareTableCrops(decodedImage, tableBoundingBoxes);
+    }
 
-        using var bitmap = DecodeBitmap(imageFile);
-        var originalWidth = bitmap.Width;
-        var originalHeight = bitmap.Height;
+    public TableFormerPageResizeSnapshot PrepareTableCrops(
+        TableFormerDecodedPageImage decodedImage,
+        IReadOnlyList<TableFormerBoundingBox>? tableBoundingBoxes = null)
+    {
+        ArgumentNullException.ThrowIfNull(decodedImage);
 
-        var sourceRgb = ExtractRgbBytes(bitmap);
+        var originalWidth = decodedImage.Width;
+        var originalHeight = decodedImage.Height;
 
         var scaleFactor = TargetHeight / (double)originalHeight;
         var resizedWidth = (int)(originalWidth * scaleFactor);
@@ -39,7 +37,7 @@ public sealed class TableFormerTableCropper
         }
 
         var resizedRgb = ResizeRgbBuffer(
-            sourceRgb,
+            decodedImage.RgbBytes,
             originalWidth,
             originalHeight,
             resizedWidth,
@@ -68,33 +66,6 @@ public sealed class TableFormerTableCropper
             TargetHeight,
             scaleFactor,
             cropSnapshots);
-    }
-
-    private static SKBitmap DecodeBitmap(FileInfo imageFile)
-    {
-        using var stream = imageFile.OpenRead();
-        var bitmap = SKBitmap.Decode(stream);
-        if (bitmap is null)
-        {
-            throw new InvalidDataException($"Unable to decode image '{imageFile.FullName}'.");
-        }
-
-        if (bitmap.ColorType == SKColorType.Rgba8888
-            && (bitmap.AlphaType == SKAlphaType.Unpremul || bitmap.AlphaType == SKAlphaType.Opaque))
-        {
-            return bitmap;
-        }
-
-        var converted = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
-        if (!bitmap.CopyTo(converted, SKColorType.Rgba8888))
-        {
-            converted.Dispose();
-            throw new InvalidDataException(
-                $"Failed to convert image '{imageFile.FullName}' to RGBA8888/Unpremul format.");
-        }
-
-        bitmap.Dispose();
-        return converted;
     }
 
     private static TableFormerTableCropSnapshot CreateCropSnapshot(
@@ -140,60 +111,6 @@ public sealed class TableFormerTableCropper
             cropBytes,
             cropFloats,
             cropSha256);
-    }
-
-    private static byte[] ExtractRgbBytes(SKBitmap bitmap)
-    {
-        using var pixmap = bitmap.PeekPixels();
-        if (pixmap is null)
-        {
-            throw new InvalidDataException("Unable to access crop pixel data.");
-        }
-
-        if (pixmap.ColorType != SKColorType.Rgba8888
-            || (pixmap.AlphaType != SKAlphaType.Unpremul && pixmap.AlphaType != SKAlphaType.Opaque))
-        {
-            throw new InvalidDataException(
-                $"Crop pixmap color space mismatch. Expected RGBA8888 with Unpremul or Opaque alpha but found {pixmap.ColorType}/{pixmap.AlphaType}.");
-        }
-
-        var width = pixmap.Width;
-        var height = pixmap.Height;
-        var rgbLength = checked(width * height * 3);
-        var rgbBytes = new byte[rgbLength];
-
-        var bytesPerPixel = pixmap.BytesPerPixel;
-        var rowBytes = pixmap.RowBytes;
-        if (bytesPerPixel < 3)
-        {
-            throw new InvalidDataException(
-                $"Unexpected bytes-per-pixel value {bytesPerPixel}; an RGB(A) layout is required.");
-        }
-
-        var pixelBufferLength = checked(rowBytes * height);
-        var pixelBytes = new byte[pixelBufferLength];
-        var pixelPointer = pixmap.GetPixels();
-        if (pixelPointer == IntPtr.Zero)
-        {
-            throw new InvalidDataException("Crop pixmap does not expose a valid pixel pointer.");
-        }
-
-        Marshal.Copy(pixelPointer, pixelBytes, 0, pixelBytes.Length);
-
-        var destinationIndex = 0;
-        for (var y = 0; y < height; y++)
-        {
-            var rowOffset = y * rowBytes;
-            for (var x = 0; x < width; x++)
-            {
-                var offset = rowOffset + x * bytesPerPixel;
-                rgbBytes[destinationIndex++] = pixelBytes[offset + 0];
-                rgbBytes[destinationIndex++] = pixelBytes[offset + 1];
-                rgbBytes[destinationIndex++] = pixelBytes[offset + 2];
-            }
-        }
-
-        return rgbBytes;
     }
 
     private static byte[] ResizeRgbBuffer(
