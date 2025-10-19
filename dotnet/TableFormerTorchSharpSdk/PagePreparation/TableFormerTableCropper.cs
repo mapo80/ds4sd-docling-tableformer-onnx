@@ -1,0 +1,494 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+
+using SkiaSharp;
+
+namespace TableFormerTorchSharpSdk.PagePreparation;
+
+public sealed class TableFormerTableCropper
+{
+    private const int TargetHeight = 1024;
+
+    public TableFormerPageResizeSnapshot PrepareTableCrops(
+        FileInfo imageFile,
+        IReadOnlyList<TableFormerBoundingBox>? tableBoundingBoxes = null)
+    {
+        ArgumentNullException.ThrowIfNull(imageFile);
+        if (!imageFile.Exists)
+        {
+            throw new FileNotFoundException($"Image file not found: '{imageFile.FullName}'.", imageFile.FullName);
+        }
+
+        using var bitmap = DecodeBitmap(imageFile);
+        var originalWidth = bitmap.Width;
+        var originalHeight = bitmap.Height;
+
+        var sourceRgb = ExtractRgbBytes(bitmap);
+
+        var scaleFactor = TargetHeight / (double)originalHeight;
+        var resizedWidth = (int)(originalWidth * scaleFactor);
+        if (resizedWidth <= 0)
+        {
+            throw new InvalidDataException(
+                $"Computed resized width {resizedWidth} is invalid for image {originalWidth}x{originalHeight}.");
+        }
+
+        var resizedRgb = ResizeRgbBuffer(
+            sourceRgb,
+            originalWidth,
+            originalHeight,
+            resizedWidth,
+            TargetHeight,
+            out var resizedFloatRgb);
+
+        var resolvedBoundingBoxes = tableBoundingBoxes?.ToArray()
+            ?? new[] { new TableFormerBoundingBox(0.0, 0.0, originalWidth, originalHeight) };
+
+        var cropSnapshots = new List<TableFormerTableCropSnapshot>(resolvedBoundingBoxes.Length);
+        foreach (var bbox in resolvedBoundingBoxes)
+        {
+            cropSnapshots.Add(CreateCropSnapshot(
+                resizedRgb,
+                resizedFloatRgb,
+                resizedWidth,
+                TargetHeight,
+                scaleFactor,
+                bbox));
+        }
+
+        return new TableFormerPageResizeSnapshot(
+            originalWidth,
+            originalHeight,
+            resizedWidth,
+            TargetHeight,
+            scaleFactor,
+            cropSnapshots);
+    }
+
+    private static SKBitmap DecodeBitmap(FileInfo imageFile)
+    {
+        using var stream = imageFile.OpenRead();
+        var bitmap = SKBitmap.Decode(stream);
+        if (bitmap is null)
+        {
+            throw new InvalidDataException($"Unable to decode image '{imageFile.FullName}'.");
+        }
+
+        if (bitmap.ColorType == SKColorType.Rgba8888
+            && (bitmap.AlphaType == SKAlphaType.Unpremul || bitmap.AlphaType == SKAlphaType.Opaque))
+        {
+            return bitmap;
+        }
+
+        var converted = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        if (!bitmap.CopyTo(converted, SKColorType.Rgba8888))
+        {
+            converted.Dispose();
+            throw new InvalidDataException(
+                $"Failed to convert image '{imageFile.FullName}' to RGBA8888/Unpremul format.");
+        }
+
+        bitmap.Dispose();
+        return converted;
+    }
+
+    private static TableFormerTableCropSnapshot CreateCropSnapshot(
+        byte[] resizedRgb,
+        float[] resizedFloatRgb,
+        int resizedWidth,
+        int resizedHeight,
+        double scaleFactor,
+        TableFormerBoundingBox originalBoundingBox)
+    {
+        var scaledBoundingBox = new TableFormerBoundingBox(
+            originalBoundingBox.Left * scaleFactor,
+            originalBoundingBox.Top * scaleFactor,
+            originalBoundingBox.Right * scaleFactor,
+            originalBoundingBox.Bottom * scaleFactor);
+
+        var roundedBoundingBox = TableFormerRoundedBoundingBox.FromScaledBoundingBox(
+            scaledBoundingBox,
+            resizedWidth,
+            resizedHeight);
+
+        var cropBytes = ExtractCropBytes(resizedRgb, resizedWidth, resizedHeight, roundedBoundingBox);
+        var cropFloats = ExtractCropFloats(resizedFloatRgb, resizedWidth, resizedHeight, roundedBoundingBox);
+        var cropSha256 = Convert.ToHexString(SHA256.HashData(cropBytes)).ToLowerInvariant();
+
+        var originalWidth = originalBoundingBox.Right - originalBoundingBox.Left;
+        var originalHeight = originalBoundingBox.Bottom - originalBoundingBox.Top;
+        var scaledWidth = scaledBoundingBox.Right - scaledBoundingBox.Left;
+        var scaledHeight = scaledBoundingBox.Bottom - scaledBoundingBox.Top;
+        var roundedWidth = roundedBoundingBox.Right - roundedBoundingBox.Left;
+        var roundedHeight = roundedBoundingBox.Bottom - roundedBoundingBox.Top;
+
+        return new TableFormerTableCropSnapshot(
+            originalBoundingBox,
+            scaledBoundingBox,
+            roundedBoundingBox,
+            originalWidth,
+            originalHeight,
+            scaledWidth,
+            scaledHeight,
+            roundedWidth,
+            roundedHeight,
+            cropBytes,
+            cropFloats,
+            cropSha256);
+    }
+
+    private static byte[] ExtractRgbBytes(SKBitmap bitmap)
+    {
+        using var pixmap = bitmap.PeekPixels();
+        if (pixmap is null)
+        {
+            throw new InvalidDataException("Unable to access crop pixel data.");
+        }
+
+        if (pixmap.ColorType != SKColorType.Rgba8888
+            || (pixmap.AlphaType != SKAlphaType.Unpremul && pixmap.AlphaType != SKAlphaType.Opaque))
+        {
+            throw new InvalidDataException(
+                $"Crop pixmap color space mismatch. Expected RGBA8888 with Unpremul or Opaque alpha but found {pixmap.ColorType}/{pixmap.AlphaType}.");
+        }
+
+        var width = pixmap.Width;
+        var height = pixmap.Height;
+        var rgbLength = checked(width * height * 3);
+        var rgbBytes = new byte[rgbLength];
+
+        var bytesPerPixel = pixmap.BytesPerPixel;
+        var rowBytes = pixmap.RowBytes;
+        if (bytesPerPixel < 3)
+        {
+            throw new InvalidDataException(
+                $"Unexpected bytes-per-pixel value {bytesPerPixel}; an RGB(A) layout is required.");
+        }
+
+        var pixelBufferLength = checked(rowBytes * height);
+        var pixelBytes = new byte[pixelBufferLength];
+        var pixelPointer = pixmap.GetPixels();
+        if (pixelPointer == IntPtr.Zero)
+        {
+            throw new InvalidDataException("Crop pixmap does not expose a valid pixel pointer.");
+        }
+
+        Marshal.Copy(pixelPointer, pixelBytes, 0, pixelBytes.Length);
+
+        var destinationIndex = 0;
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = y * rowBytes;
+            for (var x = 0; x < width; x++)
+            {
+                var offset = rowOffset + x * bytesPerPixel;
+                rgbBytes[destinationIndex++] = pixelBytes[offset + 0];
+                rgbBytes[destinationIndex++] = pixelBytes[offset + 1];
+                rgbBytes[destinationIndex++] = pixelBytes[offset + 2];
+            }
+        }
+
+        return rgbBytes;
+    }
+
+    private static byte[] ResizeRgbBuffer(
+        byte[] sourceRgb,
+        int sourceWidth,
+        int sourceHeight,
+        int targetWidth,
+        int targetHeight,
+        out float[] floatDestination)
+    {
+        var channels = 3;
+        var length = targetWidth * targetHeight * channels;
+        var destination = new byte[length];
+        floatDestination = new float[length];
+
+        var scaleX = targetWidth / (double)sourceWidth;
+        var scaleY = targetHeight / (double)sourceHeight;
+
+        for (var y = 0; y < targetHeight; y++)
+        {
+            var srcY = y / scaleY;
+            var y0 = (int)Math.Floor(srcY);
+            var yLerp = srcY - y0;
+            if (y0 < 0)
+            {
+                y0 = 0;
+                yLerp = 0.0;
+            }
+            else if (y0 >= sourceHeight - 1)
+            {
+                y0 = sourceHeight - 1;
+                yLerp = 0.0;
+            }
+
+            var y1 = Math.Min(y0 + 1, sourceHeight - 1);
+
+            for (var x = 0; x < targetWidth; x++)
+            {
+                var srcX = x / scaleX;
+                var x0 = (int)Math.Floor(srcX);
+                var xLerp = srcX - x0;
+                if (x0 < 0)
+                {
+                    x0 = 0;
+                    xLerp = 0.0;
+                }
+                else if (x0 >= sourceWidth - 1)
+                {
+                    x0 = sourceWidth - 1;
+                    xLerp = 0.0;
+                }
+
+                var x1 = Math.Min(x0 + 1, sourceWidth - 1);
+
+                var dstIndex = (y * targetWidth + x) * channels;
+
+                for (var channel = 0; channel < channels; channel++)
+                {
+                    var p00 = sourceRgb[(y0 * sourceWidth + x0) * channels + channel];
+                    var p10 = sourceRgb[(y0 * sourceWidth + x1) * channels + channel];
+                    var p01 = sourceRgb[(y1 * sourceWidth + x0) * channels + channel];
+                    var p11 = sourceRgb[(y1 * sourceWidth + x1) * channels + channel];
+
+                    var top = p00 + (p10 - p00) * xLerp;
+                    var bottom = p01 + (p11 - p01) * xLerp;
+                    var value = top + (bottom - top) * yLerp;
+                    var clamped = Math.Clamp(value, 0.0, 255.0);
+                    floatDestination[dstIndex + channel] = (float)clamped;
+                    destination[dstIndex + channel] = (byte)Math.Clamp(Math.Round(clamped), 0, 255);
+                }
+            }
+        }
+
+        return destination;
+    }
+
+    private static byte[] ExtractCropBytes(
+        byte[] resizedRgb,
+        int resizedWidth,
+        int resizedHeight,
+        TableFormerRoundedBoundingBox bbox)
+    {
+        var cropWidth = bbox.Right - bbox.Left;
+        var cropHeight = bbox.Bottom - bbox.Top;
+        if (cropWidth <= 0 || cropHeight <= 0)
+        {
+            throw new InvalidDataException(
+                $"Crop dimensions must be positive but were {cropWidth}x{cropHeight}.");
+        }
+
+        if (bbox.Right > resizedWidth || bbox.Bottom > resizedHeight)
+        {
+            throw new InvalidDataException(
+                $"Crop bounding box {bbox.Left},{bbox.Top},{bbox.Right},{bbox.Bottom} exceeds resized dimensions {resizedWidth}x{resizedHeight}.");
+        }
+
+        var channels = 3;
+        var destination = new byte[cropWidth * cropHeight * channels];
+        for (var row = 0; row < cropHeight; row++)
+        {
+            var sourceOffset = ((bbox.Top + row) * resizedWidth + bbox.Left) * channels;
+            var destinationOffset = row * cropWidth * channels;
+            Buffer.BlockCopy(resizedRgb, sourceOffset, destination, destinationOffset, cropWidth * channels);
+        }
+
+        return destination;
+    }
+
+
+    private static float[] ExtractCropFloats(
+        float[] resizedFloats,
+        int resizedWidth,
+        int resizedHeight,
+        TableFormerRoundedBoundingBox bbox)
+    {
+        var cropWidth = bbox.Right - bbox.Left;
+        var cropHeight = bbox.Bottom - bbox.Top;
+        if (cropWidth <= 0 || cropHeight <= 0)
+        {
+            throw new InvalidDataException(
+                $"Crop dimensions must be positive but were {cropWidth}x{cropHeight}.");
+        }
+
+        if (bbox.Right > resizedWidth || bbox.Bottom > resizedHeight)
+        {
+            throw new InvalidDataException(
+                $"Crop bounding box {bbox.Left},{bbox.Top},{bbox.Right},{bbox.Bottom} exceeds resized dimensions {resizedWidth}x{resizedHeight}.");
+        }
+
+        var channels = 3;
+        var destination = new float[cropWidth * cropHeight * channels];
+        for (var row = 0; row < cropHeight; row++)
+        {
+            var sourceOffset = ((bbox.Top + row) * resizedWidth + bbox.Left) * channels;
+            var destinationOffset = row * cropWidth * channels;
+            Array.Copy(resizedFloats, sourceOffset, destination, destinationOffset, cropWidth * channels);
+        }
+
+        return destination;
+    }
+}
+
+public sealed class TableFormerPageResizeSnapshot
+{
+    public TableFormerPageResizeSnapshot(
+        int originalWidth,
+        int originalHeight,
+        int resizedWidth,
+        int resizedHeight,
+        double scaleFactor,
+        IReadOnlyList<TableFormerTableCropSnapshot> tableCrops)
+    {
+        if (originalWidth <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(originalWidth), originalWidth, "Width must be positive.");
+        }
+
+        if (originalHeight <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(originalHeight), originalHeight, "Height must be positive.");
+        }
+
+        if (resizedWidth <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(resizedWidth), resizedWidth, "Resized width must be positive.");
+        }
+
+        if (resizedHeight <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(resizedHeight), resizedHeight, "Resized height must be positive.");
+        }
+
+        if (scaleFactor <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(scaleFactor), scaleFactor, "Scale factor must be positive.");
+        }
+
+        ArgumentNullException.ThrowIfNull(tableCrops);
+
+        OriginalWidth = originalWidth;
+        OriginalHeight = originalHeight;
+        ResizedWidth = resizedWidth;
+        ResizedHeight = resizedHeight;
+        ScaleFactor = scaleFactor;
+        TableCrops = new ReadOnlyCollection<TableFormerTableCropSnapshot>(tableCrops.ToArray());
+    }
+
+    public int OriginalWidth { get; }
+
+    public int OriginalHeight { get; }
+
+    public int ResizedWidth { get; }
+
+    public int ResizedHeight { get; }
+
+    public double ScaleFactor { get; }
+
+    public IReadOnlyList<TableFormerTableCropSnapshot> TableCrops { get; }
+}
+
+public sealed class TableFormerTableCropSnapshot
+{
+    public TableFormerTableCropSnapshot(
+        TableFormerBoundingBox originalBoundingBox,
+        TableFormerBoundingBox scaledBoundingBox,
+        TableFormerRoundedBoundingBox roundedBoundingBox,
+        double originalPixelWidth,
+        double originalPixelHeight,
+        double scaledPixelWidth,
+        double scaledPixelHeight,
+        int roundedPixelWidth,
+        int roundedPixelHeight,
+        byte[] cropBytes,
+        float[] cropFloatValues,
+        string cropSha256)
+    {
+        ArgumentNullException.ThrowIfNull(cropBytes);
+        ArgumentNullException.ThrowIfNull(cropFloatValues);
+        ArgumentNullException.ThrowIfNull(cropSha256);
+
+        OriginalBoundingBox = originalBoundingBox;
+        ScaledBoundingBox = scaledBoundingBox;
+        RoundedBoundingBox = roundedBoundingBox;
+        OriginalPixelWidth = originalPixelWidth;
+        OriginalPixelHeight = originalPixelHeight;
+        ScaledPixelWidth = scaledPixelWidth;
+        ScaledPixelHeight = scaledPixelHeight;
+        RoundedPixelWidth = roundedPixelWidth;
+        RoundedPixelHeight = roundedPixelHeight;
+        CropBytes = cropBytes.ToArray();
+        CropFloatValues = cropFloatValues.ToArray();
+        CropSha256 = cropSha256;
+    }
+
+    public TableFormerBoundingBox OriginalBoundingBox { get; }
+
+    public TableFormerBoundingBox ScaledBoundingBox { get; }
+
+    public TableFormerRoundedBoundingBox RoundedBoundingBox { get; }
+
+    public double OriginalPixelWidth { get; }
+
+    public double OriginalPixelHeight { get; }
+
+    public double ScaledPixelWidth { get; }
+
+    public double ScaledPixelHeight { get; }
+
+    public int RoundedPixelWidth { get; }
+
+    public int RoundedPixelHeight { get; }
+
+    public byte[] CropBytes { get; }
+
+    public float[] CropFloatValues { get; }
+
+    public string CropSha256 { get; }
+
+    public int CropByteLength => CropBytes.Length;
+
+    public int CropFloatLength => CropFloatValues.Length;
+}
+
+public sealed record TableFormerRoundedBoundingBox(int Left, int Top, int Right, int Bottom)
+{
+    public static TableFormerRoundedBoundingBox FromScaledBoundingBox(
+        TableFormerBoundingBox bbox,
+        int maxWidth,
+        int maxHeight)
+    {
+        var left = ClampToBounds((int)Math.Round(bbox.Left, MidpointRounding.ToEven), 0, maxWidth);
+        var top = ClampToBounds((int)Math.Round(bbox.Top, MidpointRounding.ToEven), 0, maxHeight);
+        var right = ClampToBounds((int)Math.Round(bbox.Right, MidpointRounding.ToEven), 0, maxWidth);
+        var bottom = ClampToBounds((int)Math.Round(bbox.Bottom, MidpointRounding.ToEven), 0, maxHeight);
+
+        right = Math.Max(right, left);
+        bottom = Math.Max(bottom, top);
+
+        return new TableFormerRoundedBoundingBox(left, top, right, bottom);
+    }
+
+    private static int ClampToBounds(int value, int min, int max)
+    {
+        if (value < min)
+        {
+            return min;
+        }
+
+        if (value > max)
+        {
+            return max;
+        }
+
+        return value;
+    }
+
+    public int[] ToArray() => new[] { Left, Top, Right, Bottom };
+}
