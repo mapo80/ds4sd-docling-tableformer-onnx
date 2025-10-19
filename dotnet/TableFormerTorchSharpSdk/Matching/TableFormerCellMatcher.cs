@@ -339,6 +339,55 @@ public sealed class TableFormerCellMatchingResult
     public int PageWidth { get; }
 
     public int PageHeight { get; }
+
+    public TableFormerMatchingDetails ToMatchingDetails()
+    {
+        var predictionBoundingBoxes = PredictionBoundingBoxesPage
+            .Select(box => new TableFormerBoundingBox(box.Left, box.Top, box.Right, box.Bottom))
+            .ToArray();
+
+        var mutableTableCells = TableCells
+            .Select(cell => new TableFormerMutableTableCell(
+                cell.CellId,
+                cell.RowId,
+                cell.ColumnId,
+                cell.BoundingBox.ToArray(),
+                cell.CellClass,
+                cell.Label,
+                cell.MulticolTag,
+                cell.Colspan,
+                cell.Rowspan))
+            .ToArray();
+
+        var mutablePdfCells = PdfCells
+            .Select(cell => new TableFormerMutablePdfCell(
+                cell.Id,
+                new TableFormerBoundingBox(cell.BoundingBox.Left, cell.BoundingBox.Top, cell.BoundingBox.Right, cell.BoundingBox.Bottom),
+                cell.Text))
+            .ToArray();
+
+        var mutableMatches = Matches.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<TableFormerMutableMatch>)new ReadOnlyCollection<TableFormerMutableMatch>(
+                pair.Value
+                    .Select(match => new TableFormerMutableMatch(match.TableCellId, match.IntersectionOverPdf, null, null))
+                    .ToArray()),
+            StringComparer.Ordinal);
+
+        return new TableFormerMatchingDetails(
+            IouThreshold,
+            new TableFormerBoundingBox(
+                TableBoundingBox.Left,
+                TableBoundingBox.Top,
+                TableBoundingBox.Right,
+                TableBoundingBox.Bottom),
+            predictionBoundingBoxes,
+            mutableTableCells,
+            mutablePdfCells,
+            mutableMatches,
+            PageWidth,
+            PageHeight);
+    }
 }
 
 public sealed record TableFormerTableCell(
