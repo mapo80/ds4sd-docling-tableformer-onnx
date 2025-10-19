@@ -66,4 +66,4 @@ public sealed record TableFormerBoundingBox(double Left, double Top, double Righ
     public double[] ToArray() => new[] { Left, Top, Right, Bottom };
 }
 
-public sealed record TableFormerPageToken();
+public sealed record TableFormerPageToken(string? Id, string? Text, TableFormerBoundingBox BoundingBox);

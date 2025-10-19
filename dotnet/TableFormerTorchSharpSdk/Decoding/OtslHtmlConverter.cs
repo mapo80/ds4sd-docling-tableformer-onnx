@@ -146,6 +146,122 @@ internal static class OtslHtmlConverter
         return new ReadOnlyCollection<string>(html.ToArray());
     }
 
+    public static IReadOnlyDictionary<int, (int Colspan, int Rowspan)> ComputeSpans(
+        IReadOnlyList<string> rsSequence)
+    {
+        ArgumentNullException.ThrowIfNull(rsSequence);
+
+        var spanMap = new Dictionary<int, (int Colspan, int Rowspan)>();
+        if (rsSequence.Count == 0)
+        {
+            return spanMap;
+        }
+
+        if (!CellTags.Contains(rsSequence[0]) && rsSequence[0] != "xcel")
+        {
+            return spanMap;
+        }
+
+        var workingSequence = rsSequence;
+        if (!IsSquare(rsSequence))
+        {
+            workingSequence = PadToSquare(rsSequence, "lcel");
+        }
+
+        var rows = SplitRows(workingSequence);
+        if (rows.Count == 0)
+        {
+            return spanMap;
+        }
+
+        var registry2dSpan = new HashSet<string>(StringComparer.Ordinal);
+        var cellIndex = 0;
+
+        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+        {
+            var row = rows[rowIndex];
+            for (var columnIndex = 0; columnIndex < row.Count; columnIndex++)
+            {
+                var token = row[columnIndex];
+                if (!IsCellToken(token))
+                {
+                    continue;
+                }
+
+                var colspan = 1;
+                var rowspan = 1;
+
+                if (columnIndex + 1 < row.Count && row[columnIndex + 1] == "lcel")
+                {
+                    var distance = CheckRight(rows, columnIndex, rowIndex);
+                    if (distance > 1)
+                    {
+                        colspan = Math.Max(colspan, distance);
+                    }
+                }
+
+                if (rowIndex + 1 < rows.Count && rows[rowIndex + 1][columnIndex] == "ucel")
+                {
+                    var distance = CheckDown(rows, columnIndex, rowIndex);
+                    if (distance > 1)
+                    {
+                        rowspan = Math.Max(rowspan, distance);
+                    }
+                }
+
+                if (columnIndex + 1 < row.Count && row[columnIndex + 1] == "xcel")
+                {
+                    var distanceRight = CheckRight(rows, columnIndex, rowIndex);
+                    var distanceDown = CheckDown(rows, columnIndex, rowIndex);
+
+                    var spanValid = true;
+                    for (var x = columnIndex; x < columnIndex + distanceRight && spanValid; x++)
+                    {
+                        for (var y = rowIndex; y < rowIndex + distanceDown; y++)
+                        {
+                            var key = FormSpanKey(x, y);
+                            if (registry2dSpan.Contains(key))
+                            {
+                                spanValid = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (spanValid)
+                    {
+                        for (var x = columnIndex; x < columnIndex + distanceRight; x++)
+                        {
+                            for (var y = rowIndex; y < rowIndex + distanceDown; y++)
+                            {
+                                registry2dSpan.Add(FormSpanKey(x, y));
+                            }
+                        }
+
+                        if (distanceRight > 1)
+                        {
+                            colspan = Math.Max(colspan, distanceRight);
+                        }
+
+                        if (distanceDown > 1)
+                        {
+                            rowspan = Math.Max(rowspan, distanceDown);
+                        }
+                    }
+                }
+
+                if (colspan > 1 || rowspan > 1)
+                {
+                    spanMap[cellIndex] = (colspan, rowspan);
+                }
+
+                cellIndex += 1;
+            }
+        }
+
+        return new ReadOnlyDictionary<int, (int Colspan, int Rowspan)>(spanMap);
+    }
+
     private static bool IsSquare(IReadOnlyList<string> sequence)
     {
         var rows = SplitRows(sequence);
@@ -268,4 +384,9 @@ internal static class OtslHtmlConverter
         x.ToString(CultureInfo.InvariantCulture),
         "_",
         y.ToString(CultureInfo.InvariantCulture));
+
+    private static bool IsCellToken(string token)
+    {
+        return token is "fcel" or "ecel" or "xcel" or "ched" or "rhed" or "srow";
+    }
 }

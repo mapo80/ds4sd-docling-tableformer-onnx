@@ -30,6 +30,7 @@ internal sealed class TableFormerSequenceDecoder
         var rsSequence = MapToTags(tagSequence);
         var htmlSequence = OtslHtmlConverter.ToHtml(rsSequence);
         var rawBoundingBoxes = ConvertBoundingBoxes(prediction.Coordinates);
+        var classPredictions = DecodeClassPredictions(prediction.Classes);
         var (synced, finalBoundingBoxes) = EnsureBoundingBoxSync(htmlSequence, rawBoundingBoxes);
 
         return new TableFormerSequencePrediction(
@@ -38,6 +39,7 @@ internal sealed class TableFormerSequenceDecoder
             htmlSequence,
             rawBoundingBoxes,
             finalBoundingBoxes,
+            classPredictions,
             synced);
     }
 
@@ -114,6 +116,25 @@ internal sealed class TableFormerSequenceDecoder
         return new ReadOnlyCollection<TableFormerNormalizedBoundingBox>(boxes);
     }
 
+    private static IReadOnlyList<int> DecodeClassPredictions(torch.Tensor classes)
+    {
+        if (classes is null || classes.shape.Length == 0 || classes.shape[0] == 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        using var argmax = classes.argmax(1);
+        using var argmaxCpu = argmax.to(torch.CPU);
+        var values = argmaxCpu.data<long>().ToArray();
+        var predictions = new int[values.Length];
+        for (var i = 0; i < values.Length; i++)
+        {
+            predictions[i] = checked((int)values[i]);
+        }
+
+        return new ReadOnlyCollection<int>(predictions);
+    }
+
     private static (bool Synced, IReadOnlyList<TableFormerNormalizedBoundingBox> Boxes) EnsureBoundingBoxSync(
         IReadOnlyList<string> htmlSequence,
         IReadOnlyList<TableFormerNormalizedBoundingBox> rawBoxes)
@@ -181,12 +202,12 @@ internal sealed class TableFormerSequenceDecoder
     }
 }
 
-internal sealed record TableFormerNormalizedBoundingBox(double Left, double Top, double Right, double Bottom)
+public sealed record TableFormerNormalizedBoundingBox(double Left, double Top, double Right, double Bottom)
 {
     public double[] ToArray() => new[] { Left, Top, Right, Bottom };
 }
 
-internal sealed class TableFormerSequencePrediction
+public sealed class TableFormerSequencePrediction
 {
     public TableFormerSequencePrediction(
         IReadOnlyList<int> tagSequence,
@@ -194,6 +215,7 @@ internal sealed class TableFormerSequencePrediction
         IReadOnlyList<string> htmlSequence,
         IReadOnlyList<TableFormerNormalizedBoundingBox> rawBoundingBoxes,
         IReadOnlyList<TableFormerNormalizedBoundingBox> finalBoundingBoxes,
+        IReadOnlyList<int> classPredictions,
         bool boundingBoxesSynced)
     {
         TagSequence = tagSequence;
@@ -201,6 +223,7 @@ internal sealed class TableFormerSequencePrediction
         HtmlSequence = htmlSequence;
         RawBoundingBoxes = rawBoundingBoxes;
         FinalBoundingBoxes = finalBoundingBoxes;
+        ClassPredictions = classPredictions;
         BoundingBoxesSynced = boundingBoxesSynced;
     }
 
@@ -213,6 +236,8 @@ internal sealed class TableFormerSequencePrediction
     public IReadOnlyList<TableFormerNormalizedBoundingBox> RawBoundingBoxes { get; }
 
     public IReadOnlyList<TableFormerNormalizedBoundingBox> FinalBoundingBoxes { get; }
+
+    public IReadOnlyList<int> ClassPredictions { get; }
 
     public bool BoundingBoxesSynced { get; }
 }

@@ -1,0 +1,555 @@
+{
+  "repo_id": "ds4sd/docling-models",
+  "revision": "main",
+  "variant": "fast",
+  "samples": [
+    {
+      "image_name": "HAL.2004.page_82.pdf_125315.png",
+      "table_index": 0,
+      "tensor_sha256": "acfe8240b75c07268af1b4bb54b976d9aec030b8b8c9f940d20a0595053e16f6",
+      "tag_sequence_sha256": "f73786d4448e7674306203deb838c56beac7edb4671c925bbfd19b3590cec8e1",
+      "table_bbox": [
+        0.0,
+        0.0,
+        216.0,
+        70.0
+      ],
+      "page_width": 216.0,
+      "page_height": 70.0,
+      "iou_threshold": 0.05,
+      "prediction_bbox_shape": [
+        21,
+        4
+      ],
+      "prediction_bbox_zlib_base64": "eJwBUAGv/tBMuL3mAIg/WDRhQuqMD0GE7xJDL1xbPzNJJEP0Rg5B4BZHQ6iCZz9iKVdDuA4OQUCIl7ty6CtBcEx1QakQmkFsLRhDL6EzQTWjI0NdOJpBB/9KQyVeMEEPCFdD6RGaQXBwGj7La6hBwEz3Qsjs6UGe+hJDnKaoQaqfI0MU2+pBWuNFQzPLqEGwUldDZmPqQcAidb0BgvdBwkHbQkjgHELH0RJDFBn5QWiVI0O+gh1CchBGQ//B+EHQvVZDm0wdQkCN17srKCRCs7h1QWRHRULmnhJDNO4kQpWMI0NLRUVC7LFFQx7BJEKgA1dDEy5FQiBjF74JoUtCC/PEQgZXbEI9sRJDuh5MQjvPI0NROW1CY5RFQ/T+S0KOEVdDSLpsQmC9tz3Kl3RCuGDhQnpyikKLqw5DKuJ0QpnEI0Pv6IpCIuVBQ0cYdUKjwVdDKuuKQpIlibw=",
+      "prediction_bbox_sha256": "9719b2613c30ac9235adda04147e022a0d960adfef93c4a70194848cf720d309",
+      "table_cells": [
+        {
+          "cell_id": 0,
+          "row_id": 0,
+          "column_id": 0,
+          "bbox": [
+            -0.08999025821685791,
+            1.062527447938919,
+            56.30111646652222,
+            8.971903026103973
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 1,
+          "row_id": 0,
+          "column_id": 1,
+          "bbox": [
+            146.93560695648193,
+            0.856875367462635,
+            164.28593730926514,
+            8.892322182655334
+          ],
+          "cell_class": 2,
+          "label": "ched",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 2,
+          "row_id": 0,
+          "column_id": 2,
+          "bbox": [
+            199.08936309814453,
+            0.9043373912572861,
+            215.16165733337402,
+            8.878593146800995
+          ],
+          "cell_class": 2,
+          "label": "ched",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 3,
+          "row_id": 1,
+          "column_id": 0,
+          "bbox": [
+            -0.004624396562576294,
+            10.744249373674393,
+            15.331161260604858,
+            19.258134365081787
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 4,
+          "row_id": 1,
+          "column_id": 1,
+          "bbox": [
+            152.17742443084717,
+            11.226851791143417,
+            163.6375207901001,
+            19.277521073818207
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 5,
+          "row_id": 1,
+          "column_id": 2,
+          "bbox": [
+            202.99620008468628,
+            11.022984683513641,
+            215.03148221969604,
+            19.25874561071396
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 6,
+          "row_id": 2,
+          "column_id": 0,
+          "bbox": [
+            0.1508195400238037,
+            21.05263262987137,
+            123.64990425109863,
+            29.240616261959076
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 7,
+          "row_id": 2,
+          "column_id": 1,
+          "bbox": [
+            146.9789686203003,
+            21.081352829933167,
+            163.62369346618652,
+            29.356971979141235
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 8,
+          "row_id": 2,
+          "column_id": 2,
+          "bbox": [
+            197.8880853652954,
+            21.099218726158142,
+            215.32300186157227,
+            29.298534393310547
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 9,
+          "row_id": 3,
+          "column_id": 0,
+          "bbox": [
+            -0.05984759330749512,
+            30.93847930431366,
+            109.62843132019043,
+            39.21902596950531
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 10,
+          "row_id": 3,
+          "column_id": 1,
+          "bbox": [
+            146.81943941116333,
+            31.137244701385498,
+            163.5836148262024,
+            39.377678632736206
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 11,
+          "row_id": 3,
+          "column_id": 2,
+          "bbox": [
+            198.06423568725586,
+            31.094724535942078,
+            214.74145603179932,
+            39.32481110095978
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 12,
+          "row_id": 4,
+          "column_id": 0,
+          "bbox": [
+            -0.006578117609024048,
+            41.03922784328461,
+            15.357592821121216,
+            49.31971609592438
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 13,
+          "row_id": 4,
+          "column_id": 1,
+          "bbox": [
+            146.62069416046143,
+            41.232619285583496,
+            163.54914951324463,
+            49.31766748428345
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 14,
+          "row_id": 4,
+          "column_id": 2,
+          "bbox": [
+            197.69500494003296,
+            41.1885929107666,
+            215.01415300369263,
+            49.294995069503784
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 15,
+          "row_id": 5,
+          "column_id": 0,
+          "bbox": [
+            -0.14783906936645508,
+            50.9072607755661,
+            98.4746925830841,
+            59.08498466014862
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 16,
+          "row_id": 5,
+          "column_id": 1,
+          "bbox": [
+            146.69234132766724,
+            51.030006408691406,
+            163.80948686599731,
+            59.30597186088562
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 17,
+          "row_id": 5,
+          "column_id": 2,
+          "bbox": [
+            197.5796356201172,
+            50.998976826667786,
+            215.0685739517212,
+            59.18191611766815
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 18,
+          "row_id": 6,
+          "column_id": 0,
+          "bbox": [
+            0.08971667289733887,
+            61.14823281764984,
+            112.68890476226807,
+            69.22358453273773
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 19,
+          "row_id": 6,
+          "column_id": 1,
+          "bbox": [
+            142.67008352279663,
+            61.22086465358734,
+            163.7679533958435,
+            69.45494830608368
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 20,
+          "row_id": 6,
+          "column_id": 2,
+          "bbox": [
+            193.89505290985107,
+            61.273707151412964,
+            215.75638675689697,
+            69.459308385849
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        }
+      ],
+      "table_cells_sha256": "04644e4b980bc959b52f6fbfb77c0ffabff4e07f532e535b741265461e128e65",
+      "matches": {},
+      "matches_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "pdf_cells": [],
+      "pdf_cells_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "image_name": "HAL.2004.page_82.pdf_125317.png",
+      "table_index": 0,
+      "tensor_sha256": "82b9d107017cafad5784bbea9dcdee0ce7e1878f68e5650f7d550ad9948ea25d",
+      "tag_sequence_sha256": "87eb0aeeb1e02f97d347c74951e10f0b6b20e07a40d95b1c97922bb3d4116773",
+      "table_bbox": [
+        0.0,
+        0.0,
+        186.0,
+        58.0
+      ],
+      "page_width": 186.0,
+      "page_height": 58.0,
+      "iou_threshold": 0.05,
+      "prediction_bbox_shape": [
+        14,
+        4
+      ],
+      "prediction_bbox_zlib_base64": "eJwB4AAf/2gMlLxoFYY/5bUmQutci0FFT+pCBJcOP6VTOUPxsaNB9QhuQCfcnEGm/yhC1WPaQYsZ60KKMJlBds0GQ1Jv2UHP3ylDsziaQZn3OUMLZdhBHtTMQOvk7EFtCyhCFCIWQv5a9UI0OO1BHcQGQz9OFkJskS1DfirsQWr9OUP3WBZC19keQCR2HUKI6SdC9eg9Qg/Y9EISpB5Ch+YGQ6wzPUJVfy1DiAMeQt0FOkPCqz1CfLsXvYhYRkJ6YidCKAxmQqjE/EJcBkZCxMIGQ/kVZkIShDFDWiJGQgf+OUOoTmZCU5dcMg==",
+      "prediction_bbox_sha256": "a23aab548449ec64c0f637898175e55cb06b02dc181a32017f7a1d57f63e28c5",
+      "table_cells": [
+        {
+          "cell_id": 0,
+          "row_id": 0,
+          "column_id": 0,
+          "bbox": [
+            -0.018072322010993958,
+            1.047528326511383,
+            41.677632093429565,
+            17.420369744300842
+          ],
+          "cell_class": 1,
+          "label": "ecel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 1,
+          "row_id": 0,
+          "column_id": 1,
+          "bbox": [
+            117.15482175350189,
+            0.5569917857646942,
+            185.32673013210297,
+            20.461885571479797
+          ],
+          "cell_class": 2,
+          "label": "ched",
+          "multicol_tag": "",
+          "colspan_val": 2,
+          "rowspan_val": 1
+        },
+        {
+          "cell_id": 2,
+          "row_id": 1,
+          "column_id": 0,
+          "bbox": [
+            3.719296619296074,
+            19.607496798038483,
+            42.249654829502106,
+            27.29874676465988
+          ],
+          "cell_class": 1,
+          "label": "ecel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 3,
+          "row_id": 1,
+          "column_id": 1,
+          "bbox": [
+            117.5498878955841,
+            19.14870047569275,
+            134.80257654190063,
+            27.179355144500732
+          ],
+          "cell_class": 2,
+          "label": "ched",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 4,
+          "row_id": 1,
+          "column_id": 2,
+          "bbox": [
+            169.8742504119873,
+            19.277685463428497,
+            185.96718406677246,
+            27.04933649301529
+          ],
+          "cell_class": 2,
+          "label": "ched",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 5,
+          "row_id": 2,
+          "column_id": 0,
+          "bbox": [
+            6.400893285870552,
+            29.61177682876587,
+            42.011157274246216,
+            37.53327798843384
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 6,
+          "row_id": 2,
+          "column_id": 1,
+          "bbox": [
+            122.67772114276886,
+            29.65244233608246,
+            134.766068816185,
+            37.576411843299866
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 7,
+          "row_id": 2,
+          "column_id": 2,
+          "bbox": [
+            173.56804955005646,
+            29.520748734474182,
+            185.9899002313614,
+            37.5868798494339
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 8,
+          "row_id": 3,
+          "column_id": 0,
+          "bbox": [
+            2.4820458590984344,
+            39.36537265777588,
+            41.97805863618851,
+            47.47749662399292
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 9,
+          "row_id": 3,
+          "column_id": 1,
+          "bbox": [
+            122.42198967933655,
+            39.66022610664368,
+            134.9004921913147,
+            47.30046010017395
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 10,
+          "row_id": 3,
+          "column_id": 2,
+          "bbox": [
+            173.4973955154419,
+            39.50344800949097,
+            186.0229046344757,
+            47.41773080825806
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 11,
+          "row_id": 4,
+          "column_id": 0,
+          "bbox": [
+            -0.03704403340816498,
+            49.58645761013031,
+            41.846168518066406,
+            57.51187217235565
+          ],
+          "cell_class": 2,
+          "label": "rhed",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 12,
+          "row_id": 4,
+          "column_id": 1,
+          "bbox": [
+            126.38409233093262,
+            49.506208658218384,
+            134.7608027458191,
+            57.52145862579346
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        },
+        {
+          "cell_id": 13,
+          "row_id": 4,
+          "column_id": 2,
+          "bbox": [
+            177.51589500904083,
+            49.533547163009644,
+            185.99229490756989,
+            57.57681322097778
+          ],
+          "cell_class": 2,
+          "label": "fcel",
+          "multicol_tag": ""
+        }
+      ],
+      "table_cells_sha256": "3f11a2bb80e1cb9bf0ba25578b675533d4ca7fd6a5386bce0c7fbf5eb439e7d3",
+      "matches": {},
+      "matches_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "pdf_cells": [],
+      "pdf_cells_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ]
+}
