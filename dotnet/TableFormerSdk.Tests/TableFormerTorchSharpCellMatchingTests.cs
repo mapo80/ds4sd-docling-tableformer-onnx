@@ -172,8 +172,10 @@ public class TableFormerTorchSharpCellMatchingTests
             for (var i = 0; i < expectedMatches.Count; i++)
             {
                 Assert.Equal(expectedMatches[i].TableCellId, actualMatches[i].TableCellId);
-                Assert.True(Math.Abs(expectedMatches[i].IntersectionOverPdf - actualMatches[i].IntersectionOverPdf) <= 1e-6,
-                    $"Match {pair.Key}[{i}] IOU differs: expected {expectedMatches[i].IntersectionOverPdf}, actual {actualMatches[i].IntersectionOverPdf}.");
+                var expectedIopdf = expectedMatches[i].IntersectionOverPdf ?? 0.0;
+                var actualIopdf = actualMatches[i].IntersectionOverPdf;
+                Assert.True(Math.Abs(expectedIopdf - actualIopdf) <= 1e-6,
+                    $"Match {pair.Key}[{i}] IOU differs: expected {expectedIopdf}, actual {actualIopdf}.");
             }
         }
     }

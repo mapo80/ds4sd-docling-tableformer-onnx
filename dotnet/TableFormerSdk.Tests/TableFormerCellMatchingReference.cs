@@ -184,15 +184,27 @@ internal sealed class TableFormerCellMatchingSample
                 ? multicolElement.GetString() ?? string.Empty
                 : string.Empty;
             int? colspan = null;
-            if (cellElement.TryGetProperty("colspan_val", out var colspanElement))
+            if (cellElement.TryGetProperty("colspan", out var colspanElement))
             {
                 colspan = colspanElement.GetInt32();
             }
 
             int? rowspan = null;
-            if (cellElement.TryGetProperty("rowspan_val", out var rowspanElement))
+            if (cellElement.TryGetProperty("rowspan", out var rowspanElement))
             {
                 rowspan = rowspanElement.GetInt32();
+            }
+
+            int? colspanValue = null;
+            if (cellElement.TryGetProperty("colspan_val", out var colspanValElement))
+            {
+                colspanValue = colspanValElement.GetInt32();
+            }
+
+            int? rowspanValue = null;
+            if (cellElement.TryGetProperty("rowspan_val", out var rowspanValElement))
+            {
+                rowspanValue = rowspanValElement.GetInt32();
             }
 
             cells.Add(new TableFormerCellReference(
@@ -204,7 +216,9 @@ internal sealed class TableFormerCellMatchingSample
                 label,
                 multicolTag,
                 colspan,
-                rowspan));
+                rowspan,
+                colspanValue,
+                rowspanValue));
         }
 
         return new ReadOnlyCollection<TableFormerCellReference>(cells);
@@ -219,8 +233,29 @@ internal sealed class TableFormerCellMatchingSample
             foreach (var matchElement in property.Value.EnumerateArray())
             {
                 var tableCellId = matchElement.GetProperty("table_cell_id").GetInt32();
-                var intersection = matchElement.GetProperty("iopdf").GetDouble();
-                entries.Add(new TableFormerMatchReference(tableCellId, intersection));
+                double? intersectionOverPdf = null;
+                if (matchElement.TryGetProperty("iopdf", out var iopdfElement))
+                {
+                    intersectionOverPdf = iopdfElement.GetDouble();
+                }
+
+                double? intersectionOverUnion = null;
+                if (matchElement.TryGetProperty("iou", out var iouElement))
+                {
+                    intersectionOverUnion = iouElement.GetDouble();
+                }
+
+                double? postScore = null;
+                if (matchElement.TryGetProperty("post", out var postElement))
+                {
+                    postScore = postElement.GetDouble();
+                }
+
+                entries.Add(new TableFormerMatchReference(
+                    tableCellId,
+                    intersectionOverPdf,
+                    intersectionOverUnion,
+                    postScore));
             }
 
             matches[property.Name] = new ReadOnlyCollection<TableFormerMatchReference>(entries);
@@ -272,10 +307,16 @@ internal sealed record TableFormerCellReference(
     IReadOnlyList<double> BoundingBox,
     int CellClass,
     string Label,
-    string MulticolTag,
+    string? MulticolTag,
     int? Colspan,
-    int? Rowspan);
+    int? Rowspan,
+    int? ColspanValue,
+    int? RowspanValue);
 
-internal sealed record TableFormerMatchReference(int TableCellId, double IntersectionOverPdf);
+internal sealed record TableFormerMatchReference(
+    int TableCellId,
+    double? IntersectionOverPdf,
+    double? IntersectionOverUnion,
+    double? PostScore);
 
 internal sealed record TableFormerPdfCellReference(string Id, string Text, IReadOnlyList<double> BoundingBox);

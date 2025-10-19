@@ -125,3 +125,11 @@ Le sezioni successive saranno aggiunte solo dopo che gli step precedenti continu
 - **Risultato corrente**: ✅ Parità confermata. La deviazione massima misurata sui bounding box pagina è `1.53e-05`, entro la soglia
   impostata, e le 21 celle per tabella mantengono ID, label, span e classi identici a Docling. Come per gli step precedenti, è
   vietato procedere se la verifica non è verde.
+
+## 9. Post-processing delle celle (MatchingPostProcessor)
+- **Descrizione**: il `MatchingPostProcessor` di Docling riallinea colonne e righe, deduplica le celle e produce l'output finale combinando i risultati del matcher con i token PDF. L'implementazione .NET è in `Matching/TableFormerMatchingPostProcessor.cs` e utilizza i DTO definiti in `Matching/TableFormerMatchingDetails.cs`.
+- **Come verificare**:
+  1. Esporta i riferimenti Python: `PYTHONPATH=tableformer-docling python scripts/export_tableformer_post_processing.py --output results/tableformer_post_processing_reference.json`
+  2. Esegui il test: `dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPostProcessingTests.PostProcessingMatchesPythonReference`
+  3. Il test ricrea la pipeline .NET fino al post-processing, sostituisce i dati intermedi con quelli del dump Python e confronta in modo strutturale celle di tabella, match e risposta Docling (inclusi flag `column_header`/`row_header` e gli span). Se anche un singolo bounding box, ID cella o flag differisce, la verifica fallisce.
+- **Risultato corrente**: ✅ Parità confermata. L'output delle tabelle, i match PDF↔cella e i flag di intestazione coincidono completamente con Docling; eventuali orfani vengono gestiti identicamente. Non è consentito procedere oltre senza mantenere questa parità.
