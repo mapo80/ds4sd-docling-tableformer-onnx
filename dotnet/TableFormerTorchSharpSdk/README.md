@@ -11,6 +11,7 @@ Bootstrap utilities for replicating Docling's TableFormer artifact handling in .
 - Reproduce Docling's page resizing and table cropping pipeline with SkiaSharp, yielding byte-identical ROI hashes and summary statistics for every table.
 - Convert table crops into normalized `[1, 3, 448, 448]` TorchSharp tensors that match Docling's preprocessing, including per-sample SHA-256 digests and descriptive statistics.
 - Execute the TorchSharp neural forward pass and compare logits/coordinates against Docling with 1e-5 tolerance, ensuring identical tag sequences and argmax indices.
+- Decode the predicted tag sequences into OTSL/HTML tokens, reproduce Docling's span-aware bounding box corrections, and validate the resulting sequences and bounding boxes against the Python reference with a 1.5e-7 tolerance.
 
 ## Usage
 ```csharp
@@ -44,6 +45,9 @@ PYTHONPATH=tableformer-docling python scripts/export_tableformer_image_tensors.p
 
 PYTHONPATH=tableformer-docling python scripts/export_tableformer_neural_outputs.py \
   --output results/tableformer_neural_outputs_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_sequence_decoding.py \
+  --output results/tableformer_sequence_decoding_reference.json
 ```
 
 Once the references are generated, run the targeted tests to validate parity:
@@ -54,4 +58,5 @@ dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPageInputTests.Page
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpTableCropTests.TableCroppingMatchesPythonReference
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpImageTensorTests.ImageTensorizationMatchesPythonReference
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpNeuralInferenceTests.NeuralInferenceMatchesPythonReference
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpSequenceDecodingTests.SequenceDecodingMatchesPythonReference
 ```

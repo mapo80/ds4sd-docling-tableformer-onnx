@@ -93,3 +93,19 @@ Le sezioni successive saranno aggiunte solo dopo che gli step precedenti continu
      `1e-5`. Se anche un solo elemento eccede la soglia la verifica fallisce e non si può procedere agli step successivi.
 - **Risultato corrente**: ✅ Parità confermata con deviazione massima osservata `5.72e-06`, ben entro la soglia `1e-5`. Le sequenze
   di tag coincidono e gli argmax riga-per-riga risultano identici tra Python e .NET.
+
+## 7. Decodifica sequenza, OTSL e controllo bounding box
+- **Descrizione**: una volta ottenute le sequenze di tag e i bbox normalizzati, Docling converte gli indici nel vocabolario OTSL,
+  genera la sequenza HTML, verifica la corrispondenza tra celle e bounding box e applica la logica `span` per eliminare eventuali
+  duplicati. L'equivalente .NET si trova in `Decoding/TableFormerSequenceDecoder.cs` e `Decoding/OtslHtmlConverter.cs`.
+- **Come verificare**:
+  1. Esporta i riferimenti Python con le sequenze e i bounding box corretti:
+     `PYTHONPATH=tableformer-docling python scripts/export_tableformer_sequence_decoding.py --output results/tableformer_sequence_decoding_reference.json`
+  2. Esegui il test dedicato:
+     `dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpSequenceDecodingTests.SequenceDecodingMatchesPythonReference`
+  3. Il test confronta le sequenze OTSL/HTML (uguaglianza esatta), confronta le liste di bounding box elemento per elemento con
+     tolleranza `1.5e-7` (necessaria per propagare le minime differenze di `Step 6`) e controlla min/max/media/deviazione
+     standard. Se il conteggio celle/bbox diverge, la logica di correzione deve produrre gli stessi indici rimossi di Docling.
+- **Risultato corrente**: ✅ Parità confermata. Tutte le sequenze coincidono e la deviazione massima osservata sui bounding box è
+  `1.1920929e-07`, inferiore alla soglia `1.5e-7`. Le statistiche aggregate riportate nel riferimento Python combaciano entro
+  cinque cifre decimali. Non è possibile procedere allo step successivo se questa verifica non è verde.
