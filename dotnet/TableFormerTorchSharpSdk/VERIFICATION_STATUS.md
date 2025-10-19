@@ -109,3 +109,19 @@ Le sezioni successive saranno aggiunte solo dopo che gli step precedenti continu
 - **Risultato corrente**: ✅ Parità confermata. Tutte le sequenze coincidono e la deviazione massima osservata sui bounding box è
   `1.1920929e-07`, inferiore alla soglia `1.5e-7`. Le statistiche aggregate riportate nel riferimento Python combaciano entro
   cinque cifre decimali. Non è possibile procedere allo step successivo se questa verifica non è verde.
+
+## 8. Matching con i token PDF (CellMatcher)
+- **Descrizione**: il `CellMatcher` di Docling traduce i bounding box normalizzati in coordinate pagina, costruisce la struttura
+  delle celle (label, span) e associa ogni PDF token con l'IoU calcolato rispetto alle celle previste. L'implementazione .NET vive
+  in `Matching/TableFormerCellMatcher.cs` e produce uno snapshot con tabelle, match e PDF cells coerenti con il JSON Python.
+- **Come verificare**:
+  1. Genera i riferimenti Python: `PYTHONPATH=tableformer-docling python scripts/export_tableformer_cell_matching.py --output results/tableformer_cell_matching_reference.json`
+  2. Esegui il test: `dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpCellMatchingTests.CellMatchingMatchesPythonReference`
+  3. Il test confronta i bounding box pagina con tolleranza `2e-5` (propagazione dell'errore massimo osservato allo step 7),
+     valida forma, conteggio e contenuto di celle e match e verifica che l'assenza di token PDF produca dizionari vuoti in entrambe
+     le implementazioni. Le SHA-256 fornite nel riferimento (`9719b2613c30ac9235adda04147e022a0d960adfef93c4a70194848cf720d309`
+     e `a23aab548449ec64c0f637898175e55cb06b02dc181a32017f7a1d57f63e28c5`) rappresentano i valori Python e fungono da baseline
+     per controlli futuri.
+- **Risultato corrente**: ✅ Parità confermata. La deviazione massima misurata sui bounding box pagina è `1.53e-05`, entro la soglia
+  impostata, e le 21 celle per tabella mantengono ID, label, span e classi identici a Docling. Come per gli step precedenti, è
+  vietato procedere se la verifica non è verde.
