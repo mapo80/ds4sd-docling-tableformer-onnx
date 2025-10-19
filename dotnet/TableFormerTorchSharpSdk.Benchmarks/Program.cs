@@ -23,6 +23,7 @@ internal sealed record BenchmarkOptions(
     FileInfo OutputPath,
     FileInfo ReferencePath,
     DirectoryInfo ArtifactCacheDirectory,
+    int NumThreads,
     bool SkipReferenceCheck)
 {
     public static BenchmarkOptions Parse(IEnumerable<string> args)
@@ -32,6 +33,7 @@ internal sealed record BenchmarkOptions(
         var output = new FileInfo(Path.Combine(repositoryRoot, "results", "tableformer_docling_fintabnet_dotnet.json"));
         var reference = new FileInfo(Path.Combine(repositoryRoot, "results", "tableformer_docling_fintabnet.json"));
         var cacheDirectory = new DirectoryInfo(Path.Combine(repositoryRoot, "dotnet", "artifacts_benchmark_cache"));
+        var numThreads = Environment.ProcessorCount;
         var skipReferenceCheck = false;
 
         var enumerator = args.GetEnumerator();
@@ -72,6 +74,23 @@ internal sealed record BenchmarkOptions(
 
                     cacheDirectory = new DirectoryInfo(enumerator.Current ?? string.Empty);
                     break;
+                case "--num-threads":
+                    if (!enumerator.MoveNext())
+                    {
+                        throw new ArgumentException("Missing value for --num-threads");
+                    }
+
+                    if (!int.TryParse(enumerator.Current, NumberStyles.Integer, CultureInfo.InvariantCulture, out numThreads))
+                    {
+                        throw new ArgumentException("--num-threads must be an integer value");
+                    }
+
+                    if (numThreads <= 0)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(numThreads), numThreads, "Thread count must be positive.");
+                    }
+
+                    break;
                 case "--skip-reference-check":
                     skipReferenceCheck = true;
                     break;
@@ -80,7 +99,7 @@ internal sealed record BenchmarkOptions(
             }
         }
 
-        return new BenchmarkOptions(dataset, output, reference, cacheDirectory, skipReferenceCheck);
+        return new BenchmarkOptions(dataset, output, reference, cacheDirectory, numThreads, skipReferenceCheck);
     }
 
     private static string ResolveRepositoryRoot()
@@ -106,6 +125,9 @@ internal static class BenchmarkRunner
         }
 
         options.OutputPath.Directory?.Create();
+
+        TorchSharp.torch.set_num_threads(options.NumThreads);
+        TorchSharp.torch.set_num_interop_threads(Math.Max(1, Math.Min(options.NumThreads, Environment.ProcessorCount)));
 
         using var bootstrapper = new TableFormerArtifactBootstrapper(options.ArtifactCacheDirectory);
         var bootstrapResult = await bootstrapper.EnsureArtifactsAsync().ConfigureAwait(false);
@@ -140,9 +162,10 @@ internal static class BenchmarkRunner
 
         foreach (var imageFile in imageFiles)
         {
+            var decodedImage = TableFormerDecodedPageImage.Decode(imageFile);
             var stopwatch = Stopwatch.StartNew();
-            var pageSnapshot = preparer.PreparePageInput(imageFile);
-            var cropSnapshot = cropper.PrepareTableCrops(imageFile, pageSnapshot.TableBoundingBoxes);
+            var pageSnapshot = preparer.PreparePageInput(decodedImage);
+            var cropSnapshot = cropper.PrepareTableCrops(decodedImage, pageSnapshot.TableBoundingBoxes);
             var tables = new List<Dictionary<string, object?>>(capacity: cropSnapshot.TableCrops.Count);
 
             for (var tableIndex = 0; tableIndex < cropSnapshot.TableCrops.Count; tableIndex++)
