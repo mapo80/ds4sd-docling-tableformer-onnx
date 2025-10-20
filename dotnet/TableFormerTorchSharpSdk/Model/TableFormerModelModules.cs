@@ -420,12 +420,32 @@ internal sealed class CellAttentionModule : torch.nn.Module<TorchTensor, TorchTe
         TorchTensor decoderHidden,
         TorchTensor languageOut)
     {
-        var att1 = _encoder_att.call(encoderOut);
-        var att2 = _tag_decoder_att.call(decoderHidden).unsqueeze(1);
-        var att3 = _language_att.call(languageOut).unsqueeze(1);
-        var att = _full_att.call(_relu.call(att1 + att2 + att3)).squeeze(2);
-        var alpha = _softmax.call(att);
-        var weighted = (encoderOut * alpha.unsqueeze(2)).sum(1);
+        using var projection = ProjectLanguage(languageOut);
+        return ApplyWithLanguageProjection(encoderOut, decoderHidden, projection);
+    }
+
+    public TorchTensor ProjectLanguage(TorchTensor languageOut)
+    {
+        ArgumentNullException.ThrowIfNull(languageOut);
+        return _language_att.call(languageOut);
+    }
+
+    public (TorchTensor weightedEncoding, TorchTensor weights) ApplyWithLanguageProjection(
+        TorchTensor encoderOut,
+        TorchTensor decoderHidden,
+        TorchTensor languageProjection)
+    {
+        ArgumentNullException.ThrowIfNull(languageProjection);
+
+        using var att1 = _encoder_att.call(encoderOut);
+        using var att2 = _tag_decoder_att.call(decoderHidden).unsqueeze(1);
+        using var att3 = languageProjection.unsqueeze(1);
+        using var preActivation = att1 + att2 + att3;
+        using var relu = _relu.call(preActivation);
+        using var logits = _full_att.call(relu).squeeze(2);
+        var alpha = _softmax.call(logits);
+        using var alphaExpanded = alpha.unsqueeze(2);
+        var weighted = (encoderOut * alphaExpanded).sum(1);
         return (weighted, alpha);
     }
 }
@@ -515,29 +535,52 @@ internal sealed class BBoxDecoderModule : torch.nn.Module<TorchTensor, TorchTens
         throw new NotSupportedException("Use DecodeBoundingBoxes instead.");
     }
 
+    public TorchTensor PrepareEncoderFeatures(TorchTensor encoderChannelsFirst)
+    {
+        ArgumentNullException.ThrowIfNull(encoderChannelsFirst);
+        return _input_filter.call(encoderChannelsFirst).permute(0, 2, 3, 1);
+    }
+
     public (TorchTensor classes, TorchTensor coordinates) DecodeBoundingBoxes(
-        TorchTensor encoderOut,
+        TorchTensor filteredEncoderOut,
         IReadOnlyList<TorchTensor> tagHiddenStates)
     {
-        var filtered = _input_filter.call(encoderOut.permute(0, 3, 1, 2)).permute(0, 2, 3, 1);
-        var encoderDim = filtered.shape[3];
-        var flattened = filtered.view(new long[] { 1, -1, encoderDim });
+        if (tagHiddenStates.Count == 0)
+        {
+            return (
+                torch.empty(new long[] { 0 }, dtype: torch.ScalarType.Float32),
+                torch.empty(new long[] { 0 }, dtype: torch.ScalarType.Float32));
+        }
+
+        var encoderDim = filteredEncoderOut.shape[3];
+        using var flattened = filteredEncoderOut.view(new long[] { 1, -1, encoderDim });
+        using var baseHidden = InitializeHidden(flattened, 1);
+        using var gateBase = _sigmoid.call(_f_beta.call(baseHidden));
+        using var languageProjection = _attention.ProjectLanguage(baseHidden);
 
         var classOutputs = new List<TorchTensor>(tagHiddenStates.Count);
         var bboxOutputs = new List<TorchTensor>(tagHiddenStates.Count);
 
         foreach (var tagHidden in tagHiddenStates)
         {
-            var h = InitializeHidden(flattened, 1);
-            var (attentionWeighted, _) = _attention.Apply(flattened, tagHidden, h);
-            var gate = _sigmoid.call(_f_beta.call(h));
-            var gated = gate * attentionWeighted;
-            h = gated * h;
+            var (attentionWeighted, attentionWeights) = _attention.ApplyWithLanguageProjection(
+                flattened,
+                tagHidden,
+                languageProjection);
+            using (attentionWeights)
+            using (attentionWeighted)
+            {
+                using var gated = gateBase * attentionWeighted;
+                using var contextual = gated * baseHidden;
 
-            var bbox = _bbox_embed.forward(h).sigmoid();
-            var cls = _class_embed.call(h);
-            bboxOutputs.Add(bbox[0]);
-            classOutputs.Add(cls[0]);
+                using var bboxFull = _bbox_embed.forward(contextual).sigmoid();
+                var bboxSlice = bboxFull[0].clone();
+                bboxOutputs.Add(bboxSlice);
+
+                using var classFull = _class_embed.call(contextual);
+                var classSlice = classFull[0].clone();
+                classOutputs.Add(classSlice);
+            }
         }
 
         var bboxTensor = bboxOutputs.Count > 0
@@ -546,6 +589,17 @@ internal sealed class BBoxDecoderModule : torch.nn.Module<TorchTensor, TorchTens
         var classTensor = classOutputs.Count > 0
             ? torch.stack(classOutputs.ToArray())
             : torch.empty(new long[] { 0 }, dtype: torch.ScalarType.Float32);
+
+        foreach (var tensor in bboxOutputs)
+        {
+            tensor.Dispose();
+        }
+
+        foreach (var tensor in classOutputs)
+        {
+            tensor.Dispose();
+        }
+
         return (classTensor, bboxTensor);
     }
 
