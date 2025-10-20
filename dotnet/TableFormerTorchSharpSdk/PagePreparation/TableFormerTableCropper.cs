@@ -387,8 +387,8 @@ public sealed class TableFormerTableCropSnapshot
         ScaledPixelHeight = scaledPixelHeight;
         RoundedPixelWidth = roundedPixelWidth;
         RoundedPixelHeight = roundedPixelHeight;
-        CropBytes = cropBytes.ToArray();
-        CropFloatValues = cropFloatValues.ToArray();
+        CropBytes = cropBytes;
+        CropFloatValues = cropFloatValues;
         CropSha256 = cropSha256;
     }
 

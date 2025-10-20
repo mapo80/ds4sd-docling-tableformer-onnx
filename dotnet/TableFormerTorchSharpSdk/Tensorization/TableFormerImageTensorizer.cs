@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.IO;
@@ -95,13 +96,10 @@ public sealed class TableFormerImageTensorizer
             cropValuesSpan = fallbackValues;
         }
 
-        var resizedPixels = ResizeCropValues(
+        var channelMajor = CreateChannelMajorTensor(
             cropValuesSpan,
             sourceWidth,
             sourceHeight);
-
-        var normalized = NormalizeResizedPixels(resizedPixels);
-        var channelMajor = ConvertToChannelMajor(normalized);
 
         var sha256 = ComputeSha256(channelMajor);
         var tensor = TorchSharp.torch.tensor(channelMajor, new long[] { Channels, _targetSize, _targetSize }, dtype: TorchScalarType.Float32);
@@ -117,7 +115,10 @@ public sealed class TableFormerImageTensorizer
             tensorSha256: sha256);
     }
 
-    private float[] ResizeCropValues(ReadOnlySpan<float> sourceValues, int sourceWidth, int sourceHeight)
+    private float[] CreateChannelMajorTensor(
+        ReadOnlySpan<float> sourceValues,
+        int sourceWidth,
+        int sourceHeight)
     {
         if (sourceWidth <= 0 || sourceHeight <= 0)
         {
@@ -131,12 +132,55 @@ public sealed class TableFormerImageTensorizer
                 "Crop value length does not match the expected RGB layout for the provided dimensions.");
         }
 
-        var destination = new float[_targetSize * _targetSize * Channels];
+        var bufferLength = _targetSize * _targetSize * Channels;
+        var resizedBuffer = ArrayPool<float>.Shared.Rent(bufferLength);
+        var normalizedBuffer = ArrayPool<float>.Shared.Rent(bufferLength);
+
+        try
+        {
+            var resizedSpan = resizedBuffer.AsSpan(0, bufferLength);
+            ResizeCropValues(sourceValues, sourceWidth, sourceHeight, resizedSpan);
+
+            var normalizedSpan = normalizedBuffer.AsSpan(0, bufferLength);
+            NormalizeResizedPixels(resizedSpan, normalizedSpan);
+
+            return ConvertToChannelMajor(normalizedSpan);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(resizedBuffer);
+            ArrayPool<float>.Shared.Return(normalizedBuffer);
+        }
+    }
+
+    private void ResizeCropValues(
+        ReadOnlySpan<float> sourceValues,
+        int sourceWidth,
+        int sourceHeight,
+        Span<float> destination)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            throw new InvalidDataException(
+                $"Crop dimensions must be positive but were {sourceWidth}x{sourceHeight}.");
+        }
+
+        if (sourceValues.Length != sourceWidth * sourceHeight * Channels)
+        {
+            throw new InvalidDataException(
+                "Crop value length does not match the expected RGB layout for the provided dimensions.");
+        }
+
+        var requiredLength = _targetSize * _targetSize * Channels;
+        if (destination.Length < requiredLength)
+        {
+            throw new ArgumentException("Destination span is too small for resized crop values.", nameof(destination));
+        }
 
         if (sourceWidth == _targetSize && sourceHeight == _targetSize)
         {
             sourceValues.CopyTo(destination);
-            return destination;
+            return;
         }
 
         var scaleX = _targetSize / (double)sourceWidth;
@@ -187,7 +231,6 @@ public sealed class TableFormerImageTensorizer
                 }
 
                 var x1 = Math.Min(x0 + 1, sourceWidth - 1);
-
                 var dstIndex = (y * _targetSize + x) * Channels;
 
                 var idx00 = (y0 * sourceWidth + x0) * Channels;
@@ -210,26 +253,26 @@ public sealed class TableFormerImageTensorizer
                 }
             }
         }
-
-        return destination;
     }
 
-    private float[] NormalizeResizedPixels(float[] resizedPixels)
+    private void NormalizeResizedPixels(ReadOnlySpan<float> resizedPixels, Span<float> destination)
     {
-        var normalized = new float[resizedPixels.Length];
+        var requiredLength = _targetSize * _targetSize * Channels;
+        if (destination.Length < requiredLength)
+        {
+            throw new ArgumentException("Destination span is too small for normalized pixels.", nameof(destination));
+        }
 
-        for (var i = 0; i < resizedPixels.Length; i++)
+        for (var i = 0; i < requiredLength; i++)
         {
             var channel = i % Channels;
             var clamped = Math.Clamp(resizedPixels[i], 0f, 255f);
             var value = clamped / 255f;
-            normalized[i] = (value - _mean[channel]) / _std[channel];
+            destination[i] = (value - _mean[channel]) / _std[channel];
         }
-
-        return normalized;
     }
 
-    private float[] ConvertToChannelMajor(float[] normalized)
+    private float[] ConvertToChannelMajor(ReadOnlySpan<float> normalized)
     {
         var destination = new float[_targetSize * _targetSize * Channels];
 
@@ -248,8 +291,6 @@ public sealed class TableFormerImageTensorizer
 
         return destination;
     }
-
-
     private static float[] ConvertBytesToFloat(byte[] source)
     {
         var values = new float[source.Length];
