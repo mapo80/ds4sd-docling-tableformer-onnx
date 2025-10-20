@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -18,6 +19,11 @@ internal sealed class TableFormerNeuralModel : IDisposable
 {
     private static readonly object TorchInitLock = new();
     private static bool TorchThreadsConfigured;
+    private static int? RequestedComputeThreads;
+    private static int? RequestedInteropThreads;
+
+    private const string TorchThreadsEnvironmentVariable = "TABLEFORMER_TORCH_THREADS";
+    private const string TorchInteropThreadsEnvironmentVariable = "TABLEFORMER_TORCH_INTEROP_THREADS";
 
     private readonly TableModel04RsModule _model;
     private readonly IReadOnlyDictionary<string, int> _wordMapTag;
@@ -55,8 +61,9 @@ internal sealed class TableFormerNeuralModel : IDisposable
         {
             if (!TorchThreadsConfigured)
             {
-                torch.set_num_threads(1);
-                torch.set_num_interop_threads(1);
+                var threadConfig = ResolveTorchThreadConfiguration();
+                torch.set_num_threads(threadConfig.ComputeThreads);
+                torch.set_num_interop_threads(threadConfig.InteropThreads);
                 TorchThreadsConfigured = true;
             }
 
@@ -116,12 +123,24 @@ internal sealed class TableFormerNeuralModel : IDisposable
         _model.eval();
     }
 
+    public static void ConfigureThreading(int? computeThreads, int? interopThreads = null)
+    {
+        lock (TorchInitLock)
+        {
+            RequestedComputeThreads = SanitizeThreadCount(computeThreads);
+            RequestedInteropThreads = SanitizeThreadCount(interopThreads);
+            TorchThreadsConfigured = false;
+        }
+    }
+
     public TableFormerNeuralPrediction Predict(TorchTensor tensor)
     {
-        using var inferenceGuard = torch.no_grad();
+        using var inferenceGuard = torch.inference_mode();
         using var encoded = _model.EncodeImage(tensor);
-        using var filtered = _model._tag_transformer._input_filter.call(encoded.permute(0, 3, 1, 2));
-        using var encoderOut = filtered.permute(0, 2, 3, 1);
+        using var encoderChannelsFirst = encoded.permute(0, 3, 1, 2);
+        using var filteredForTransformer = _model._tag_transformer._input_filter.call(encoderChannelsFirst);
+        using var encoderOut = filteredForTransformer.permute(0, 2, 3, 1);
+        using var filteredForBounding = _model._bbox_decoder.PrepareEncoderFeatures(encoderChannelsFirst);
 
         var batchSize = (int)encoderOut.shape[0];
         var encoderDim = (int)encoderOut.shape[^1];
@@ -231,13 +250,16 @@ internal sealed class TableFormerNeuralModel : IDisposable
             cache?.Dispose();
         }
 
-        using var sequenceSlice = decodedTagsBuffer.narrow(0, 0, sequenceLength);
-        using var sequenceTensor = sequenceSlice.squeeze();
-        using var sequenceInt = sequenceTensor.to_type(torch.ScalarType.Int32);
-        using var sequenceCpu = sequenceInt.to(torch.CPU);
-        var sequence = sequenceCpu.data<int>().ToArray();
+        var sequence = new int[sequenceLength];
+        sequence[0] = _startTag;
+        for (var i = 0; i < outputTags.Count; i++)
+        {
+            sequence[i + 1] = outputTags[i];
+        }
 
-        var (classTensor, coordTensor) = _model._bbox_decoder.DecodeBoundingBoxes(encoded, tagHiddenStates);
+        var (classTensor, coordTensor) = _model._bbox_decoder.DecodeBoundingBoxes(
+            filteredForBounding,
+            tagHiddenStates);
         foreach (var hidden in tagHiddenStates)
         {
             hidden.Dispose();
@@ -255,6 +277,50 @@ internal sealed class TableFormerNeuralModel : IDisposable
         _encoderMaskCache = null;
         _keyPaddingMaskCache?.Dispose();
         _keyPaddingMaskCache = null;
+    }
+
+    private static TorchThreadConfiguration ResolveTorchThreadConfiguration()
+    {
+        var requestedThreads = RequestedComputeThreads
+            ?? ParseEnvironmentOverride(TorchThreadsEnvironmentVariable)
+            ?? Math.Max(1, Environment.ProcessorCount);
+
+        var requestedInterop = RequestedInteropThreads
+            ?? ParseEnvironmentOverride(TorchInteropThreadsEnvironmentVariable)
+            ?? Math.Max(1, Math.Min(requestedThreads, Environment.ProcessorCount));
+
+        return new TorchThreadConfiguration(requestedThreads, requestedInterop);
+    }
+
+    private static int? ParseEnvironmentOverride(string variableName)
+    {
+        var value = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static int? SanitizeThreadCount(int? requested)
+    {
+        if (requested is null)
+        {
+            return null;
+        }
+
+        if (requested <= 0)
+        {
+            return null;
+        }
+
+        return requested;
     }
 
     private TorchTensor GetEncoderMask(int positions)
@@ -446,6 +512,8 @@ internal sealed class TableFormerNeuralModel : IDisposable
         throw new InvalidDataException($"Word map is missing required tag '{name}'.");
     }
 }
+
+internal readonly record struct TorchThreadConfiguration(int ComputeThreads, int InteropThreads);
 
 internal sealed class TableFormerNeuralPrediction : IDisposable
 {

@@ -174,6 +174,10 @@ internal static class BenchmarkRunner
         public const string Assemble = "assemble_ms";
     }
 
+    private const int RunsPerDocument = 6;
+    private const int WarmupRunsPerDocument = 1;
+    private const int MeasurementRunsPerDocument = RunsPerDocument - WarmupRunsPerDocument;
+
     public static async Task<int> RunAsync(BenchmarkOptions options)
     {
         if (!options.DatasetDirectory.Exists)
@@ -201,6 +205,7 @@ internal static class BenchmarkRunner
         var bootstrapResult = await bootstrapper.EnsureArtifactsAsync().ConfigureAwait(false);
         var initializationSnapshot = await bootstrapResult.InitializePredictorAsync().ConfigureAwait(false);
 
+        TableFormerTorchSharpSdk.Model.TableFormerNeuralModel.ConfigureThreading(options.RequestedThreads);
         using var neuralModel = new TableFormerTorchSharpSdk.Model.TableFormerNeuralModel(
             bootstrapResult.ConfigSnapshot,
             initializationSnapshot,
@@ -345,75 +350,50 @@ internal static class BenchmarkRunner
 
         foreach (var imageFile in imageFiles)
         {
-            var docStopwatch = Stopwatch.StartNew();
-            var stageCollector = new StageTimingCollector();
+            var stageAggregator = new StageTimingAggregator();
+            double measuredDocumentTime = 0.0;
+            Dictionary<string, object?>? lastPrediction = null;
 
-            stageCollector.Restart();
-            var decodedImage = TableFormerDecodedPageImage.Decode(imageFile);
-            stageCollector.StopAndRecord(StageNames.DecodeImage);
-
-            stageCollector.Restart();
-            var pageSnapshot = preparer.PreparePageInput(decodedImage);
-            stageCollector.StopAndRecord(StageNames.PreparePage);
-
-            stageCollector.Restart();
-            var cropSnapshot = cropper.PrepareTableCrops(decodedImage, pageSnapshot.TableBoundingBoxes);
-            stageCollector.StopAndRecord(StageNames.CropTables);
-
-            var tables = new List<Dictionary<string, object?>>(cropSnapshot.TableCrops.Count);
-
-            for (var tableIndex = 0; tableIndex < cropSnapshot.TableCrops.Count; tableIndex++)
+            for (var runIndex = 0; runIndex < RunsPerDocument; runIndex++)
             {
-                var crop = cropSnapshot.TableCrops[tableIndex];
+                var runResult = RunSingleDocument(
+                    imageFile,
+                    neuralModel,
+                    decoder,
+                    cellMatcher,
+                    cropper,
+                    tensorizer,
+                    preparer,
+                    postProcessor,
+                    assembler);
 
-                stageCollector.Restart();
-                using var tensorSnapshot = tensorizer.CreateTensor(crop);
-                stageCollector.StopAndRecord(StageNames.Tensorize);
+                lastPrediction = runResult.Prediction;
 
-                stageCollector.Restart();
-                using var prediction = neuralModel.Predict(tensorSnapshot.Tensor);
-                stageCollector.StopAndRecord(StageNames.ModelInference);
+                if (runIndex < WarmupRunsPerDocument)
+                {
+                    continue;
+                }
 
-                stageCollector.Restart();
-                var decoded = decoder.Decode(prediction);
-                stageCollector.StopAndRecord(StageNames.SequenceDecode);
-
-                stageCollector.Restart();
-                var matchingResult = cellMatcher.MatchCells(pageSnapshot, crop, decoded);
-                var matchingDetails = matchingResult.ToMatchingDetails();
-                stageCollector.StopAndRecord(StageNames.CellMatch);
-
-                stageCollector.Restart();
-                var processed = pageSnapshot.Tokens.Count > 0
-                    ? postProcessor.Process(matchingDetails.ToMutable(), correctOverlappingCells: false)
-                    : matchingDetails;
-                stageCollector.StopAndRecord(StageNames.PostProcess);
-
-                stageCollector.Restart();
-                var assembled = assembler.Assemble(processed, decoded, sortRowColIndexes: true);
-                stageCollector.StopAndRecord(StageNames.Assemble);
-
-                tables.Add(assembled.ToDictionary());
+                stageAggregator.AddSample(runResult.StageTimingsMs);
+                measuredDocumentTime += runResult.TotalMs;
             }
 
-            docStopwatch.Stop();
-
-            var predictionPayload = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["num_tables"] = tables.Count,
-                ["tables"] = tables,
-            };
+            var averagedStages = stageAggregator.ComputeAverage();
+            var averageDocMs = measuredDocumentTime / MeasurementRunsPerDocument;
+            var predictionPayload = lastPrediction is not null
+                ? new Dictionary<string, object?>(lastPrediction, StringComparer.Ordinal)
+                : new Dictionary<string, object?>(StringComparer.Ordinal);
 
             var documentResult = new BenchmarkDocumentResult
             {
-                TimingMs = docStopwatch.Elapsed.TotalMilliseconds,
-                StageTimingsMs = stageCollector.ToDictionary(),
+                TimingMs = averageDocMs,
+                StageTimingsMs = averagedStages,
                 Prediction = predictionPayload,
             };
 
             documents[imageFile.Name] = documentResult;
 
-            foreach (var stage in documentResult.StageTimingsMs)
+            foreach (var stage in averagedStages)
             {
                 if (stageSummary.TryGetValue(stage.Key, out var total))
                 {
@@ -457,6 +437,82 @@ internal static class BenchmarkRunner
             Summary = summary,
             StageSummaryMs = stageSummary,
         };
+    }
+
+    private static DocumentRunResult RunSingleDocument(
+        FileInfo imageFile,
+        TableFormerTorchSharpSdk.Model.TableFormerNeuralModel neuralModel,
+        TableFormerSequenceDecoder decoder,
+        TableFormerCellMatcher cellMatcher,
+        TableFormerTableCropper cropper,
+        TableFormerImageTensorizer tensorizer,
+        TableFormerPageInputPreparer preparer,
+        TableFormerMatchingPostProcessor postProcessor,
+        TableFormerDoclingResponseAssembler assembler)
+    {
+        var docStopwatch = Stopwatch.StartNew();
+        var stageCollector = new StageTimingCollector();
+
+        stageCollector.Restart();
+        var decodedImage = TableFormerDecodedPageImage.Decode(imageFile);
+        stageCollector.StopAndRecord(StageNames.DecodeImage);
+
+        stageCollector.Restart();
+        var pageSnapshot = preparer.PreparePageInput(decodedImage);
+        stageCollector.StopAndRecord(StageNames.PreparePage);
+
+        stageCollector.Restart();
+        var cropSnapshot = cropper.PrepareTableCrops(decodedImage, pageSnapshot.TableBoundingBoxes);
+        stageCollector.StopAndRecord(StageNames.CropTables);
+
+        var tables = new List<Dictionary<string, object?>>(cropSnapshot.TableCrops.Count);
+
+        for (var tableIndex = 0; tableIndex < cropSnapshot.TableCrops.Count; tableIndex++)
+        {
+            var crop = cropSnapshot.TableCrops[tableIndex];
+
+            stageCollector.Restart();
+            using var tensorSnapshot = tensorizer.CreateTensor(crop);
+            stageCollector.StopAndRecord(StageNames.Tensorize);
+
+            stageCollector.Restart();
+            using var prediction = neuralModel.Predict(tensorSnapshot.Tensor);
+            stageCollector.StopAndRecord(StageNames.ModelInference);
+
+            stageCollector.Restart();
+            var decoded = decoder.Decode(prediction);
+            stageCollector.StopAndRecord(StageNames.SequenceDecode);
+
+            stageCollector.Restart();
+            var matchingResult = cellMatcher.MatchCells(pageSnapshot, crop, decoded);
+            var matchingDetails = matchingResult.ToMatchingDetails();
+            stageCollector.StopAndRecord(StageNames.CellMatch);
+
+            stageCollector.Restart();
+            var processed = pageSnapshot.Tokens.Count > 0
+                ? postProcessor.Process(matchingDetails.ToMutable(), correctOverlappingCells: false)
+                : matchingDetails;
+            stageCollector.StopAndRecord(StageNames.PostProcess);
+
+            stageCollector.Restart();
+            var assembled = assembler.Assemble(processed, decoded, sortRowColIndexes: true);
+            stageCollector.StopAndRecord(StageNames.Assemble);
+
+            tables.Add(assembled.ToDictionary());
+        }
+
+        docStopwatch.Stop();
+
+        var predictionPayload = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["num_tables"] = tables.Count,
+            ["tables"] = tables,
+        };
+
+        return new DocumentRunResult(
+            docStopwatch.Elapsed.TotalMilliseconds,
+            stageCollector.ToDictionary(),
+            predictionPayload);
     }
 
     private static async Task<bool> VerifyReferenceAsync(BenchmarkReport report, FileInfo referencePath)
@@ -513,6 +569,43 @@ internal static class BenchmarkRunner
         catch
         {
             return "unknown";
+        }
+    }
+
+    private sealed record DocumentRunResult(
+        double TotalMs,
+        Dictionary<string, double> StageTimingsMs,
+        Dictionary<string, object?> Prediction);
+
+    private sealed class StageTimingAggregator
+    {
+        private readonly Dictionary<string, (double Sum, int Count)> _summary = new(StringComparer.Ordinal);
+
+        public void AddSample(IReadOnlyDictionary<string, double> sample)
+        {
+            foreach (var pair in sample)
+            {
+                if (_summary.TryGetValue(pair.Key, out var existing))
+                {
+                    _summary[pair.Key] = (existing.Sum + pair.Value, existing.Count + 1);
+                }
+                else
+                {
+                    _summary[pair.Key] = (pair.Value, 1);
+                }
+            }
+        }
+
+        public Dictionary<string, double> ComputeAverage()
+        {
+            var result = new Dictionary<string, double>(_summary.Count, StringComparer.Ordinal);
+            foreach (var pair in _summary)
+            {
+                var average = pair.Value.Count > 0 ? pair.Value.Sum / pair.Value.Count : 0.0;
+                result[pair.Key] = average;
+            }
+
+            return result;
         }
     }
 

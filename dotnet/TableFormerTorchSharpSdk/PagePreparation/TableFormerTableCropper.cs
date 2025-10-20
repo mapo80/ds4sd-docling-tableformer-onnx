@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
 
 namespace TableFormerTorchSharpSdk.PagePreparation;
 
@@ -121,70 +122,116 @@ public sealed class TableFormerTableCropper
         int targetHeight,
         out float[] floatDestination)
     {
-        var channels = 3;
+        const int channels = 3;
         var length = targetWidth * targetHeight * channels;
         var destination = new byte[length];
         floatDestination = new float[length];
+        var floatBuffer = floatDestination;
+        var byteBuffer = destination;
 
-        var scaleX = targetWidth / (double)sourceWidth;
-        var scaleY = targetHeight / (double)sourceHeight;
-
-        for (var y = 0; y < targetHeight; y++)
+        if (sourceWidth == targetWidth && sourceHeight == targetHeight)
         {
-            var srcY = y / scaleY;
-            var y0 = (int)Math.Floor(srcY);
-            var yLerp = srcY - y0;
-            if (y0 < 0)
+            var copyLength = Math.Min(length, sourceRgb.Length);
+            for (var i = 0; i < copyLength; i++)
             {
-                y0 = 0;
-                yLerp = 0.0;
-            }
-            else if (y0 >= sourceHeight - 1)
-            {
-                y0 = sourceHeight - 1;
-                yLerp = 0.0;
+                var value = sourceRgb[i];
+                byteBuffer[i] = value;
+                floatBuffer[i] = value;
             }
 
-            var y1 = Math.Min(y0 + 1, sourceHeight - 1);
+            return byteBuffer;
+        }
+
+        var xWeights = BuildBilinearWeights(targetWidth, sourceWidth);
+        var yWeights = BuildBilinearWeights(targetHeight, sourceHeight);
+
+        Parallel.For(0, targetHeight, y =>
+        {
+            var yWeight = yWeights[y];
+            var row0Base = yWeight.Index0 * sourceWidth * channels;
+            var row1Base = yWeight.Index1 * sourceWidth * channels;
+            var yLerp = yWeight.Weight;
+            var destinationRowOffset = y * targetWidth * channels;
 
             for (var x = 0; x < targetWidth; x++)
             {
-                var srcX = x / scaleX;
-                var x0 = (int)Math.Floor(srcX);
-                var xLerp = srcX - x0;
-                if (x0 < 0)
-                {
-                    x0 = 0;
-                    xLerp = 0.0;
-                }
-                else if (x0 >= sourceWidth - 1)
-                {
-                    x0 = sourceWidth - 1;
-                    xLerp = 0.0;
-                }
-
-                var x1 = Math.Min(x0 + 1, sourceWidth - 1);
-
-                var dstIndex = (y * targetWidth + x) * channels;
+                var xWeight = xWeights[x];
+                var x0Offset = xWeight.Index0 * channels;
+                var x1Offset = xWeight.Index1 * channels;
+                var destinationIndex = destinationRowOffset + x * channels;
+                var xLerp = xWeight.Weight;
 
                 for (var channel = 0; channel < channels; channel++)
                 {
-                    var p00 = sourceRgb[(y0 * sourceWidth + x0) * channels + channel];
-                    var p10 = sourceRgb[(y0 * sourceWidth + x1) * channels + channel];
-                    var p01 = sourceRgb[(y1 * sourceWidth + x0) * channels + channel];
-                    var p11 = sourceRgb[(y1 * sourceWidth + x1) * channels + channel];
+                    var p00 = sourceRgb[row0Base + x0Offset + channel];
+                    var p10 = sourceRgb[row0Base + x1Offset + channel];
+                    var p01 = sourceRgb[row1Base + x0Offset + channel];
+                    var p11 = sourceRgb[row1Base + x1Offset + channel];
 
                     var top = p00 + (p10 - p00) * xLerp;
                     var bottom = p01 + (p11 - p01) * xLerp;
                     var value = top + (bottom - top) * yLerp;
                     var clamped = Math.Clamp(value, 0.0, 255.0);
-                    floatDestination[dstIndex + channel] = (float)clamped;
-                    destination[dstIndex + channel] = (byte)Math.Clamp(Math.Round(clamped), 0, 255);
+
+                    floatBuffer[destinationIndex + channel] = (float)clamped;
+                    var rounded = Math.Clamp((int)Math.Round(clamped), 0, 255);
+                    byteBuffer[destinationIndex + channel] = (byte)rounded;
                 }
             }
+        });
+
+        return byteBuffer;
+    }
+
+    private static BilinearWeight[] BuildBilinearWeights(int targetLength, int sourceLength)
+    {
+        var weights = new BilinearWeight[targetLength];
+        if (targetLength == 0)
+        {
+            return weights;
         }
 
-        return destination;
+        var scale = targetLength / (double)sourceLength;
+        var maxIndex = Math.Max(0, sourceLength - 1);
+
+        for (var i = 0; i < targetLength; i++)
+        {
+            var src = i / scale;
+            var index0 = (int)Math.Floor(src);
+            var weight = src - index0;
+
+            if (index0 < 0)
+            {
+                index0 = 0;
+                weight = 0d;
+            }
+            else if (index0 >= maxIndex)
+            {
+                index0 = maxIndex;
+                weight = 0d;
+            }
+
+            var index1 = Math.Min(index0 + 1, maxIndex);
+            weights[i] = new BilinearWeight(index0, index1, weight);
+        }
+
+        return weights;
+    }
+
+    private readonly struct BilinearWeight
+    {
+        public BilinearWeight(int index0, int index1, double weight)
+        {
+            Index0 = index0;
+            Index1 = index1;
+            Weight = weight;
+        }
+
+        public int Index0 { get; }
+
+        public int Index1 { get; }
+
+        public double Weight { get; }
     }
 
     private static byte[] ExtractCropBytes(
