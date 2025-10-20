@@ -163,14 +163,17 @@ public sealed class TableFormerCellMatcher
                 spanMap.TryGetValue(cellId, out var span);
                 int? colspan = null;
                 int? rowspan = null;
-                if (span.Colspan > 0)
+                int? colspanValue = null;
+                int? rowspanValue = null;
+
+                if (span.Colspan > 1)
                 {
-                    colspan = span.Colspan;
+                    colspanValue = span.Colspan;
                 }
 
                 if (span.Rowspan > 0)
                 {
-                    rowspan = span.Rowspan;
+                    rowspanValue = span.Rowspan;
                 }
 
                 var tableCell = new TableFormerTableCell(
@@ -182,7 +185,9 @@ public sealed class TableFormerCellMatcher
                     tag,
                     string.Empty,
                     colspan,
-                    rowspan);
+                    rowspan,
+                    colspanValue,
+                    rowspanValue);
 
                 tableCells.Add(tableCell);
                 cellId += 1;
@@ -347,16 +352,23 @@ public sealed class TableFormerCellMatchingResult
             .ToArray();
 
         var mutableTableCells = TableCells
-            .Select(cell => new TableFormerMutableTableCell(
-                cell.CellId,
-                cell.RowId,
-                cell.ColumnId,
-                cell.BoundingBox.ToArray(),
-                cell.CellClass,
-                cell.Label,
-                cell.MulticolTag,
-                cell.Colspan,
-                cell.Rowspan))
+            .Select(cell =>
+            {
+                var mutable = new TableFormerMutableTableCell(
+                    cell.CellId,
+                    cell.RowId,
+                    cell.ColumnId,
+                    cell.BoundingBox.ToArray(),
+                    cell.CellClass,
+                    cell.Label,
+                    cell.MulticolTag,
+                    cell.Colspan,
+                    cell.Rowspan);
+
+                mutable.ColspanValue = cell.ColspanValue;
+                mutable.RowspanValue = cell.RowspanValue;
+                return mutable;
+            })
             .ToArray();
 
         var mutablePdfCells = PdfCells
@@ -399,7 +411,9 @@ public sealed record TableFormerTableCell(
     string Label,
     string MulticolTag,
     int? Colspan,
-    int? Rowspan);
+    int? Rowspan,
+    int? ColspanValue,
+    int? RowspanValue);
 
 public sealed record TableFormerPdfCell(string Id, TableFormerBoundingBox BoundingBox, string Text);
 

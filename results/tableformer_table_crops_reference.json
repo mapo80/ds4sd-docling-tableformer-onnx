@@ -1,0 +1,92 @@
+{
+  "samples": [
+    {
+      "image_name": "HAL.2004.page_82.pdf_125315.png",
+      "original_width": 216.0,
+      "original_height": 70.0,
+      "scale_factor": 14.628571428571428,
+      "resized_width": 3159,
+      "resized_height": 1024,
+      "table_crops": [
+        {
+          "table_index": 0,
+          "original_bbox": [
+            0.0,
+            0.0,
+            216.0,
+            70.0
+          ],
+          "scaled_bbox": [
+            0.0,
+            0.0,
+            3159.7714285714283,
+            1024.0
+          ],
+          "rounded_bbox": [
+            0,
+            0,
+            3159,
+            1024
+          ],
+          "original_bbox_pixel_width": 216.0,
+          "original_bbox_pixel_height": 70.0,
+          "scaled_bbox_pixel_width": 3159.7714285714283,
+          "scaled_bbox_pixel_height": 1024.0,
+          "rounded_bbox_pixel_width": 3159,
+          "rounded_bbox_pixel_height": 1024,
+          "crop_width": 3159,
+          "crop_height": 1024,
+          "crop_byte_length": 9704448,
+          "crop_image_sha256": "acd45dadb470d038469a38224c7d39bcbf480e4ddbe9ac1eac774f4426da7c8e",
+          "crop_mean_pixel_value": 229.17044112143216,
+          "crop_std_pixel_value": 45.118282453436564,
+          "crop_channels": 3
+        }
+      ]
+    },
+    {
+      "image_name": "HAL.2004.page_82.pdf_125317.png",
+      "original_width": 186.0,
+      "original_height": 58.0,
+      "scale_factor": 17.655172413793103,
+      "resized_width": 3283,
+      "resized_height": 1024,
+      "table_crops": [
+        {
+          "table_index": 0,
+          "original_bbox": [
+            0.0,
+            0.0,
+            186.0,
+            58.0
+          ],
+          "scaled_bbox": [
+            0.0,
+            0.0,
+            3283.862068965517,
+            1024.0
+          ],
+          "rounded_bbox": [
+            0,
+            0,
+            3283,
+            1024
+          ],
+          "original_bbox_pixel_width": 186.0,
+          "original_bbox_pixel_height": 58.0,
+          "scaled_bbox_pixel_width": 3283.862068965517,
+          "scaled_bbox_pixel_height": 1024.0,
+          "rounded_bbox_pixel_width": 3283,
+          "rounded_bbox_pixel_height": 1024,
+          "crop_width": 3283,
+          "crop_height": 1024,
+          "crop_byte_length": 10085376,
+          "crop_image_sha256": "c9c09c78d421082119871147368e0732741887c917bb8dcb6fdbc05f89500fce",
+          "crop_mean_pixel_value": 240.5237282179663,
+          "crop_std_pixel_value": 36.28213246660239,
+          "crop_channels": 3
+        }
+      ]
+    }
+  ]
+}

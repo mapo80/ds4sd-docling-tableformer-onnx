@@ -56,113 +56,39 @@ python scripts/bench_python.py --model models/tableformer-fast-optimized.onnx \
   --sequential --threads-intra 0 --threads-inter 1 --target-h 448 --target-w 448
 ```
 
-## SDK .NET 9
-La libreria `TableFormerSdk` fornisce un'API modulare per orchestrare i diversi runtime supportati:
+## SDK TorchSharp (.NET 9)
+La libreria `TableFormerTorchSharpSdk` replica in .NET la pipeline di Docling basata su TorchSharp, fornendo strumenti per scaricare gli artifact Hugging Face, convalidare le configurazioni e garantire la parità numerica con il bootstrap Python.
 
-- **ONNX Runtime** (`.onnx`)
-- **ONNX Runtime** con grafi ottimizzati (`.ort`)
-- **OpenVINO CSharp API** (`.xml`/`.bin`)
+### Componenti principali
+- **Bootstrap artifact** – `TableFormerArtifactBootstrapper` scarica `tm_config.json`, word map e pesi `safetensors`, producendo snapshot firmati per verificare hash e file scaricati.
+- **Inizializzazione del predictor** – `TableFormerPredictorInitializer` ricostruisce la pipeline TorchSharp eseguendo controlli di parità sui tensori rispetto al riferimento Python.
+- **Pipeline completa** – i moduli in `PagePreparation`, `Tensorization`, `Model`, `Decoding`, `Matching` e `Results` riproducono il resize delle pagine, la generazione dei tensori, il forward pass e la ricostruzione delle celle con le stesse tolleranze impiegate da Docling.
 
-La soluzione è stata migrata a .NET 9 per sfruttare i miglioramenti del runtime e delle librerie di base. Tutti i progetti sono ora allineati con le ultime versioni stabili dei pacchetti NuGet (ONNX Runtime 1.22.1, SkiaSharp 3.119.0, suite xUnit 2.9.x) per garantire compatibilità e patch di sicurezza aggiornate.
-
-### Architettura della libreria
-Il refactoring suddivide le responsabilità principali in componenti dedicate:
-
-- `TableFormerSdk` coordina la pipeline di inferenza, applica la validazione degli input e restituisce `TableStructureResult`.
-- `TableFormerSdkOptions` raccoglie i percorsi dei modelli (`TableFormerModelPaths`), la configurazione della visualizzazione (`TableVisualizationOptions`) e le lingue disponibili (`TableFormerLanguage`).
-- `BackendRegistry` gestisce il ciclo di vita dei backend concreti, istanziati tramite `DefaultBackendFactory` a partire dalle opzioni fornite.
-- Le classi in `TableFormerSdk.Constants` centralizzano messaggi e valori di default (colore/ampiezza degli overlay).
-- `OverlayRenderer` incapsula la generazione della bitmap con le bounding box.
-
-### Enumerazioni ufficiali
-- `TableFormerRuntime` – runtime di esecuzione (`Auto`, ONNX, ORT, OpenVINO).
-- `TableFormerModelVariant` – variante del modello (*Fast* / *Accurate*).
-- `TableFormerLanguage` – lingua dell'input gestita dalla configurazione (English, Italian, French, German, Spanish, Portuguese, Chinese, Japanese).
-
-### Ottimizzazione basata sui tempi di esecuzione
-La release introduce un sottosistema di ottimizzazione che misura automaticamente le latenze di inferenza di ogni backend e sceglie la configurazione più veloce per ciascuna variante del modello. Il driver è il nuovo `TableFormerPerformanceAdvisor`, alimentato da una finestra scorrevole di metriche (`TableFormerPerformanceOptions.SlidingWindowSize`) e da soglie configurabili (`MinimumSamples`).
-
-- La modalità `TableFormerRuntime.Auto` effettua dapprima un'esplorazione dei runtime disponibili (rispettando l'ordine preferenziale definito in `TableFormerPerformanceOptions.RuntimePriority`) per raccogliere un numero minimo di campioni.
-- Una volta popolata la finestra di osservazione, l'SDK sceglie sempre il runtime con la latenza media più bassa, aggiornando l'informazione a ogni chiamata.
-- I risultati sono esposti tramite `TableStructureResult.PerformanceSnapshot` e dagli helper `TableFormerSdk.GetPerformanceSnapshots` / `GetLatestSnapshot`, utili per esporre dashboard o telemetrie enterprise.
-
-### Configurazione e uso
+### Utilizzo rapido
 ```csharp
-using SkiaSharp;
-using TableFormerSdk;
-using TableFormerSdk.Configuration;
-using TableFormerSdk.Enums;
-using TableFormerSdk.Performance;
+using TableFormerTorchSharpSdk.Artifacts;
+using TableFormerTorchSharpSdk.Configuration;
 
-var modelRoot = Path.Combine(AppContext.BaseDirectory, "models", "tableformer-onnx");
-var fastPaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_fast");
-TableFormerVariantModelPaths? accuratePaths = null;
-try
-{
-    accuratePaths = TableFormerVariantModelPaths.FromDirectory(modelRoot, "tableformer_accurate");
-}
-catch (FileNotFoundException)
-{
-    Console.WriteLine("Accurate variant not available – falling back to Fast only.");
-}
+var artifactsRoot = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, "artifacts"));
+using var bootstrapper = new TableFormerArtifactBootstrapper(artifactsRoot, variant: "fast");
 
-var options = new TableFormerSdkOptions(
-    onnx: new TableFormerModelPaths(fastPaths, accuratePaths),
-    supportedLanguages: new[]
-    {
-        TableFormerLanguage.English,
-        TableFormerLanguage.Italian
-    },
-    visualizationOptions: new TableVisualizationOptions(
-        strokeColor: SKColors.DeepSkyBlue,
-        strokeWidth: 3f),
-    performanceOptions: new TableFormerPerformanceOptions(
-        enableAdaptiveRuntimeSelection: true,
-        minimumSamples: 2,
-        runtimePriority: new[]
-        {
-            TableFormerRuntime.Onnx
-        }));
+var bootstrapResult = await bootstrapper.EnsureArtifactsAsync();
+bootstrapResult.EnsureConfigMatches(await TableFormerConfigReference.LoadAsync(
+    "results/tableformer_config_fast_hash.json"));
 
-using var sdk = new TableFormerSdk(options);
-
-var result = sdk.Process(
-    imagePath: "dataset/gazette_de_france.jpg",
-    overlay: true,
-    runtime: TableFormerRuntime.Auto,
-    variant: TableFormerModelVariant.Fast,
-    language: TableFormerLanguage.Italian);
-
-Console.WriteLine($"Detected regions: {result.Regions.Count}");
-Console.WriteLine($"Language: {result.Language}");
-Console.WriteLine($"Runtime: {result.Runtime} Avg={result.PerformanceSnapshot.AverageLatencyMilliseconds:F2}ms");
-
-result.OverlayImage?.Encode(SKEncodedImageFormat.Png, 90)
-    .SaveTo(File.OpenWrite("overlay.png"));
+var predictorSnapshot = await bootstrapResult.InitializePredictorAsync();
+Console.WriteLine($"Tensors verified: {predictorSnapshot.TensorDigests.Count}");
 ```
-> Nota: i percorsi dei modelli vengono validati in fase di costruzione tramite `TableFormerModelPaths`,
-> che verifica la presenza di tutti i componenti ONNX (`encoder`, `tag_transformer_*`, `bbox_decoder`, `config.json`, `wordmap.json`) per ciascuna variante.
 
-I pacchetti NuGet di riferimento includono `Microsoft.ML.OnnxRuntime` e `SkiaSharp`.
-
-Le medie aritmetiche (in millisecondi) sulle cinque misurazioni utili sono riassunte nella tabella seguente. I CSV generati includono ora il runtime realmente utilizzato (`filename,runtime,ms`) perché l'SDK restituisce la latenza nativa attraverso `TableStructureResult.InferenceTime`.
-
-| Immagine | ONNX Runtime (ms) | OpenVINO (ms) |
-| --- | ---: | ---: |
-| HAL.2004.page_82.pdf_125315.png | 60,65 | 6,80 |
-| HAL.2004.page_82.pdf_125317.png | 53,90 | 5,57 |
-
-I valori derivano dai CSV generati dall'applicazione (`timings.csv`).【3c7576†L1-L11】【5d16ff†L1-L11】 L'IR OpenVINO riduce di circa 9 volte il tempo medio rispetto al runtime ONNX su questo campione ristretto, pur mantenendo la scalabilità sull'intero dataset grazie al preprocessing integrato nello SDK. La console di benchmark sfrutta direttamente `TableStructureResult.InferenceTime`, mantenendo la coerenza con la logica di auto-tuning disponibile in produzione.
 ### Test e benchmark .NET
-- **Test unitari**: `dotnet test TableFormerSdk.sln`
-- **Benchmark**: l'applicazione console `TableFormerSdk.Benchmarks` replica gli script Python e salva gli stessi artifact.
+- **Test unitari**: `dotnet test TableFormerSdk.sln --filter TableFormerTorchSharp` per eseguire i test di parità TorchSharp.
+- **Benchmark**: `dotnet/TableFormerTorchSharpSdk.Benchmarks` riproduce gli script Python salvando tempi, overlay e metadati.
 
 ```bash
-dotnet run --project dotnet/TableFormerSdk.Benchmarks/TableFormerSdk.Benchmarks.csproj -- \
-  --engine Onnx --variant-name Fast \
-  --onnx-fast models/heron-optimized.onnx \
-  --images dataset/FinTabNet/benchmark --output results/benchmarks \
-  --runs-per-image 5 --warmup 1 --target-h 640 --target-w 640
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Benchmarks/TableFormerTorchSharpSdk.Benchmarks.csproj -- \
+  --engine TorchSharp --variant-name Fast \
+  --artifacts-root artifacts --output results/benchmarks \
+  --runs-per-image 5 --warmup 1 --target-h 448 --target-w 448
 ```
 
 ## Requisiti

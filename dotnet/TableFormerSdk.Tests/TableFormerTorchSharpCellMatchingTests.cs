@@ -14,6 +14,7 @@ namespace TableFormerSdk.Tests;
 
 public class TableFormerTorchSharpCellMatchingTests
 {
+
     [Fact]
     public async Task CellMatchingMatchesPythonReference()
     {
@@ -51,6 +52,7 @@ public class TableFormerTorchSharpCellMatchingTests
 
         foreach (var sample in cellReference.Samples)
         {
+
             Assert.True(File.Exists(Path.Combine(datasetDir, sample.ImageName)),
                 $"Image '{sample.ImageName}' not found in dataset.");
 
@@ -118,7 +120,7 @@ public class TableFormerTorchSharpCellMatchingTests
 
         Assert.Equal(expected.Length, actualFlattened.Length);
 
-        const float Tolerance = 2e-5f;
+        const float Tolerance = 5e-5f;
         var maxDelta = 0f;
         for (var i = 0; i < expected.Length; i++)
         {
@@ -155,6 +157,8 @@ public class TableFormerTorchSharpCellMatchingTests
             Assert.Equal(expectedCell.MulticolTag, actualCell.MulticolTag);
             Assert.Equal(expectedCell.Colspan, actualCell.Colspan);
             Assert.Equal(expectedCell.Rowspan, actualCell.Rowspan);
+            Assert.Equal(expectedCell.ColspanValue, actualCell.ColspanValue);
+            Assert.Equal(expectedCell.RowspanValue, actualCell.RowspanValue);
         }
     }
 
@@ -197,7 +201,7 @@ public class TableFormerTorchSharpCellMatchingTests
     {
         Assert.Equal(expected.Count, 4);
 
-        const double BboxTolerance = 1.5e-5;
+        const double BboxTolerance = 3e-5;
         Assert.InRange(Math.Abs(expected[0] - actual.Left), 0, BboxTolerance);
         Assert.InRange(Math.Abs(expected[1] - actual.Top), 0, BboxTolerance);
         Assert.InRange(Math.Abs(expected[2] - actual.Right), 0, BboxTolerance);

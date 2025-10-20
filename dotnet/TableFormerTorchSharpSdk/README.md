@@ -2,6 +2,12 @@
 
 Bootstrap utilities for replicating Docling's TableFormer artifact handling in .NET.
 
+The SDK targets **.NET 9.0** and ships with TorchSharp 0.105.x and SkiaSharp 3.119.x to mirror Docling's preprocessing and inference stack.
+
+## Requirements
+- .NET 9 SDK installed and available on the `PATH`.
+- Access to the Python reference scripts in `tableformer-docling` for regenerating parity snapshots.
+
 ## Features
 - Download the canonical TableFormer artifacts for a given variant from Hugging Face.
 - Load and validate `tm_config.json` with the same rules used by Docling's Python implementation.
@@ -17,6 +23,9 @@ Bootstrap utilities for replicating Docling's TableFormer artifact handling in .
 
 ## Usage
 ```csharp
+using TableFormerTorchSharpSdk.Artifacts;
+using TableFormerTorchSharpSdk.Configuration;
+
 var bootstrapper = new TableFormerArtifactBootstrapper(new DirectoryInfo("artifacts"));
 var result = await bootstrapper.EnsureArtifactsAsync();
 
@@ -70,3 +79,30 @@ dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpSequenceDecodingTes
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpCellMatchingTests.CellMatchingMatchesPythonReference
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPostProcessingTests.PostProcessingMatchesPythonReference
 ```
+
+## Performance benchmarking CLI
+
+The repository exposes a reusable benchmark harness under `TableFormerTorchSharpSdk.Benchmarks` that measures end-to-end
+inference timings against the canonical FinTabNet benchmark. Each iteration persists a self-contained JSON snapshot in
+`results/perf_runs/` and automatically updates `results/performance_report.md` with baseline deltas.
+
+Run three warm iterations and compare against the stored `perf_baseline.json` reference:
+
+```bash
+dotnet run -c Release \
+  --project dotnet/TableFormerTorchSharpSdk.Benchmarks \
+  -- --dataset dataset/FinTabNet/benchmark \
+     --baseline results/perf_baseline.json \
+     --iterations 3 \
+     --label optimized
+```
+
+Useful command options:
+
+- `--runs-dir <path>`: change the output directory for iteration JSON files (defaults to `results/perf_runs`).
+- `--report <path>`: override the Markdown comparison path (defaults to `results/performance_report.md`).
+- `--skip-reference-check`: skip verifying predictions against `results/tableformer_docling_fintabnet.json`.
+
+Each iteration JSON records per-document timings, stage-level breakdowns, and metadata such as the TorchSharp thread
+configuration. The Markdown report summarises the last iteration relative to the specified baseline, making it easy to
+track successive optimisation passes.

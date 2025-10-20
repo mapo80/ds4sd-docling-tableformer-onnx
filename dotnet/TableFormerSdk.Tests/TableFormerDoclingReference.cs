@@ -41,7 +41,16 @@ internal sealed class TableFormerDoclingReference
             var tableIndex = 0;
             foreach (var tableElement in tablesElement.EnumerateArray())
             {
-                var canonical = JsonCanonicalizer.GetCanonicalJson(tableElement);
+                string canonical;
+                if (tableElement.ValueKind == JsonValueKind.String)
+                {
+                    canonical = tableElement.GetString() ?? string.Empty;
+                }
+                else
+                {
+                    canonical = JsonCanonicalizer.GetCanonicalJson(tableElement);
+                }
+
                 canonicalTables.Add(canonical);
                 tables[(imageName, tableIndex)] = canonical;
                 tableIndex += 1;

@@ -16,6 +16,9 @@ namespace TableFormerTorchSharpSdk.Model;
 
 internal sealed class TableFormerNeuralModel : IDisposable
 {
+    private static readonly object TorchInitLock = new();
+    private static bool TorchThreadsConfigured;
+
     private readonly TableModel04RsModule _model;
     private readonly IReadOnlyDictionary<string, int> _wordMapTag;
     private readonly IReadOnlyDictionary<int, string> _reverseWordMapTag;
@@ -32,6 +35,13 @@ internal sealed class TableFormerNeuralModel : IDisposable
     private readonly int _cachedNl;
     private readonly int _cachedUcel;
 
+    private TorchTensor? _encoderMaskCache;
+    private int _encoderMaskPositions;
+
+    private TorchTensor? _keyPaddingMaskCache;
+    private int _keyPaddingMaskBatchSize;
+    private int _keyPaddingMaskPositions;
+
     public TableFormerNeuralModel(
         TableFormerConfigSnapshot configSnapshot,
         TableFormerInitializationSnapshot initializationSnapshot,
@@ -40,6 +50,18 @@ internal sealed class TableFormerNeuralModel : IDisposable
         ArgumentNullException.ThrowIfNull(configSnapshot);
         ArgumentNullException.ThrowIfNull(initializationSnapshot);
         ArgumentNullException.ThrowIfNull(modelDirectory);
+
+        lock (TorchInitLock)
+        {
+            if (!TorchThreadsConfigured)
+            {
+                torch.set_num_threads(1);
+                torch.set_num_interop_threads(1);
+                TorchThreadsConfigured = true;
+            }
+
+            torch.manual_seed(0);
+        }
 
         var modelConfig = GetSection(configSnapshot.Config, "model");
         var predictConfig = GetSection(configSnapshot.Config, "predict");
@@ -96,6 +118,7 @@ internal sealed class TableFormerNeuralModel : IDisposable
 
     public TableFormerNeuralPrediction Predict(TorchTensor tensor)
     {
+        using var inferenceGuard = torch.no_grad();
         using var encoded = _model.EncodeImage(tensor);
         using var filtered = _model._tag_transformer._input_filter.call(encoded.permute(0, 3, 1, 2));
         using var encoderOut = filtered.permute(0, 2, 3, 1);
@@ -107,11 +130,15 @@ internal sealed class TableFormerNeuralModel : IDisposable
         using var encInputs = encoderView.permute(1, 0, 2);
         var positions = (int)encInputs.shape[0];
 
-        using var encoderMask = torch.zeros(new long[] { positions, positions }, dtype: torch.ScalarType.Bool);
-        using var keyPaddingMask = torch.zeros(new long[] { batchSize, positions }, dtype: torch.ScalarType.Bool);
+        var encoderMask = GetEncoderMask(positions);
+        encoderMask.zero_();
+        var keyPaddingMask = GetKeyPaddingMask(batchSize, positions);
+        keyPaddingMask.zero_();
         using var transformerEncoderOut = _model._tag_transformer._encoder.call(encInputs, encoderMask);
-
-        var decodedTags = torch.tensor(new long[] { _startTag }, dtype: torch.ScalarType.Int64).unsqueeze(1);
+        using var decodedTagsBuffer = torch.empty(new long[] { _maxSteps + 1, 1 }, dtype: torch.ScalarType.Int64);
+        var decodedTagsAccessor = decodedTagsBuffer.data<long>();
+        decodedTagsAccessor[0, 0] = _startTag;
+        var sequenceLength = 1;
 
         var outputTags = new List<int>();
         TorchTensor? cache = null;
@@ -128,10 +155,11 @@ internal sealed class TableFormerNeuralModel : IDisposable
         {
             while (outputTags.Count < _maxSteps)
             {
-                using var decodedEmbedding = _model._tag_transformer._embedding.call(decodedTags);
+                using var decodedTagsView = decodedTagsBuffer.narrow(0, 0, sequenceLength);
+                using var decodedEmbedding = _model._tag_transformer._embedding.call(decodedTagsView);
                 using var positioned = _model._tag_transformer._positional_encoding.forward(decodedEmbedding);
 
-                var (decoded, newCache) = _model._tag_transformer._decoder.Decode(
+                var (decodedTensor, newCache) = _model._tag_transformer._decoder.Decode(
                     positioned,
                     transformerEncoderOut,
                     cache,
@@ -140,6 +168,7 @@ internal sealed class TableFormerNeuralModel : IDisposable
                 cache?.Dispose();
                 cache = newCache;
 
+                using var decoded = decodedTensor;
                 using var lastStep = decoded[decoded.shape[0] - 1];
                 using var logits = _model._tag_transformer._fc.call(lastStep);
                 using var argmax = logits.argmax(dim: 1);
@@ -156,14 +185,11 @@ internal sealed class TableFormerNeuralModel : IDisposable
                     newTag = _cachedFcel;
                 }
 
-                var lastStepClone = lastStep.clone();
-
                 if (newTag == _endTag)
                 {
                     outputTags.Add(newTag);
-                    AppendTag(ref decodedTags, newTag);
-                    lastStepClone.Dispose();
-                    decoded.Dispose();
+                    decodedTagsAccessor[sequenceLength, 0] = newTag;
+                    sequenceLength += 1;
                     break;
                 }
 
@@ -171,7 +197,7 @@ internal sealed class TableFormerNeuralModel : IDisposable
 
                 if (!skipNextTag && IsBoundingTag(newTag))
                 {
-                    tagHiddenStates.Add(lastStepClone.clone());
+                    tagHiddenStates.Add(lastStep.clone());
                     if (!firstLcel)
                     {
                         bboxesToMerge[curBboxIndex] = bboxIndex;
@@ -186,20 +212,18 @@ internal sealed class TableFormerNeuralModel : IDisposable
                 }
                 else if (firstLcel)
                 {
-                    tagHiddenStates.Add(lastStepClone.clone());
+                    tagHiddenStates.Add(lastStep.clone());
                     firstLcel = false;
                     curBboxIndex = bboxIndex;
                     bboxesToMerge[curBboxIndex] = -1;
                     bboxIndex += 1;
                 }
 
-                lastStepClone.Dispose();
-
                 skipNextTag = newTag == _cachedNl || newTag == _cachedUcel || newTag == _xcelTag;
                 prevTagUcel = newTag == _cachedUcel;
 
-                AppendTag(ref decodedTags, newTag);
-                decoded.Dispose();
+                decodedTagsAccessor[sequenceLength, 0] = newTag;
+                sequenceLength += 1;
             }
         }
         finally
@@ -207,11 +231,11 @@ internal sealed class TableFormerNeuralModel : IDisposable
             cache?.Dispose();
         }
 
-        using var sequenceTensor = decodedTags.squeeze();
+        using var sequenceSlice = decodedTagsBuffer.narrow(0, 0, sequenceLength);
+        using var sequenceTensor = sequenceSlice.squeeze();
         using var sequenceInt = sequenceTensor.to_type(torch.ScalarType.Int32);
         using var sequenceCpu = sequenceInt.to(torch.CPU);
         var sequence = sequenceCpu.data<int>().ToArray();
-        decodedTags.Dispose();
 
         var (classTensor, coordTensor) = _model._bbox_decoder.DecodeBoundingBoxes(encoded, tagHiddenStates);
         foreach (var hidden in tagHiddenStates)
@@ -227,6 +251,37 @@ internal sealed class TableFormerNeuralModel : IDisposable
     public void Dispose()
     {
         _model.Dispose();
+        _encoderMaskCache?.Dispose();
+        _encoderMaskCache = null;
+        _keyPaddingMaskCache?.Dispose();
+        _keyPaddingMaskCache = null;
+    }
+
+    private TorchTensor GetEncoderMask(int positions)
+    {
+        if (_encoderMaskCache is null || _encoderMaskPositions != positions)
+        {
+            _encoderMaskCache?.Dispose();
+            _encoderMaskCache = torch.zeros(new long[] { positions, positions }, dtype: torch.ScalarType.Bool);
+            _encoderMaskPositions = positions;
+        }
+
+        return _encoderMaskCache!;
+    }
+
+    private TorchTensor GetKeyPaddingMask(int batchSize, int positions)
+    {
+        if (_keyPaddingMaskCache is null ||
+            _keyPaddingMaskBatchSize != batchSize ||
+            _keyPaddingMaskPositions != positions)
+        {
+            _keyPaddingMaskCache?.Dispose();
+            _keyPaddingMaskCache = torch.zeros(new long[] { batchSize, positions }, dtype: torch.ScalarType.Bool);
+            _keyPaddingMaskBatchSize = batchSize;
+            _keyPaddingMaskPositions = positions;
+        }
+
+        return _keyPaddingMaskCache!;
     }
 
     private static void LoadWeights(DirectoryInfo modelDirectory, TableModel04RsModule model)
@@ -259,14 +314,6 @@ internal sealed class TableFormerNeuralModel : IDisposable
                 throw new InvalidDataException($"Unexpected tensor '{entry.Name}' encountered while loading weights.");
             }
         }
-    }
-
-    private static void AppendTag(ref TorchTensor decodedTags, int tag)
-    {
-        using var tagTensor = torch.tensor(new long[] { tag }, dtype: torch.ScalarType.Int64).unsqueeze(1);
-        var next = torch.cat(new[] { decodedTags, tagTensor }, dim: 0);
-        decodedTags.Dispose();
-        decodedTags = next;
     }
 
     private (TorchTensor classes, TorchTensor coords) MergeBoundingBoxes(

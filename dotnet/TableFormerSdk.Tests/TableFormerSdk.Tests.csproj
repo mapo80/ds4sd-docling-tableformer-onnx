@@ -24,7 +24,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TableFormerSdk\TableFormerSdk.csproj" />
     <ProjectReference Include="..\TableFormerTorchSharpSdk\TableFormerTorchSharpSdk.csproj" />
   </ItemGroup>
 
