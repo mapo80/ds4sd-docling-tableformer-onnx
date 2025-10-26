@@ -9,7 +9,7 @@ The SDK targets **.NET 9.0** and ships with TorchSharp 0.105.x and SkiaSharp 3.1
 - Access to the Python reference scripts in `tableformer-docling` for regenerating parity snapshots.
 
 ## Features
-- Download the canonical TableFormer artifacts for a given variant from Hugging Face.
+- Download the canonical TableFormer artifacts for a given variant directly from the GitHub release (`tableformer-accurate.zip` / `tableformer-fast.zip`).
 - Load and validate `tm_config.json` with the same rules used by Docling's Python implementation.
 - Canonicalize the configuration JSON and compute its SHA-256 hash for parity checks.
 - Compare the .NET canonicalization against the Python baseline hash produced by `scripts/hash_tableformer_config.py`.
@@ -26,7 +26,11 @@ The SDK targets **.NET 9.0** and ships with TorchSharp 0.105.x and SkiaSharp 3.1
 using TableFormerTorchSharpSdk.Artifacts;
 using TableFormerTorchSharpSdk.Configuration;
 
-var bootstrapper = new TableFormerArtifactBootstrapper(new DirectoryInfo("artifacts"));
+// Download (if missing) and cache the fast variant under artifacts/model_artifacts/tableformer/fast
+var bootstrapper = new TableFormerArtifactBootstrapper(
+    new DirectoryInfo("artifacts"),
+    TableFormerModelVariant.Fast);
+
 var result = await bootstrapper.EnsureArtifactsAsync();
 
 var reference = await TableFormerConfigReference.LoadAsync(
@@ -78,6 +82,21 @@ dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpNeuralInferenceTest
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpSequenceDecodingTests.SequenceDecodingMatchesPythonReference
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpCellMatchingTests.CellMatchingMatchesPythonReference
 dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPostProcessingTests.PostProcessingMatchesPythonReference
+```
+
+## Verification CLI
+The project ships with a lightweight console app that validates both the **fast** and **accurate** variants against the bundled references:
+
+```bash
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj
+```
+
+The CLI downloads the release assets on demand, runs the full pipeline on the FinTabNet samples, and compares the canonicalised Docling output with `results/tableformer_docling_fintabnet*.json`.  
+Use `--update-reference` to regenerate the baseline files when publishing new model bundles:
+
+```bash
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj -- --variant fast --update-reference
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj -- --variant accurate --update-reference
 ```
 
 ## Performance benchmarking CLI
