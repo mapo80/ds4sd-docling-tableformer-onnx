@@ -39,6 +39,7 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 dotnet/artifacts_test_cache/
+dotnet/artifacts_cli_cache/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt

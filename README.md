@@ -20,33 +20,29 @@ Gli artifact HuggingFace disponibili in [`ds4sd/docling-models`](https://hugging
 - Dataset FinTabNet per benchmark e validazione (opzionale, vedere sezione "Preparazione dataset")
 
 ### Download automatico dei modelli
-La libreria `TableFormerTorchSharpSdk` **scarica automaticamente** i modelli da Hugging Face. Non è necessario scaricare manualmente i file.
+La libreria `TableFormerTorchSharpSdk` **scarica automaticamente** i modelli dalla release GitHub [`v1.0.0`](https://github.com/mapo80/ds4sd-docling-tableformer-onnx/releases/tag/v1.0.0). Non è necessario scaricare manualmente i file.
 
 Al primo avvio, il bootstrapper:
-1. Scarica `tm_config.json` dal repository Hugging Face
-2. Scarica i pesi in formato `safetensors` (es. `tableformer_fast.safetensors`)
-3. Scarica il word map (es. `WORDMAP_FinTabNet_FullDatasetGenerated.json`)
+1. Scarica l'archivio `tableformer-{variant}.zip` dalla release (`fast` o `accurate`)
+2. Verifica l'hash SHA-256 dell'archivio
+3. Estrae la configurazione `tm_config.json` e i pesi `tableformer_{variant}.safetensors`
 4. Salva gli artifact nella directory `artifacts/` con la seguente struttura:
    ```
    artifacts/
    └── model_artifacts/
        └── tableformer/
            └── fast/                          # o "accurate"
-               ├── tm_config.json             # Configurazione del modello
-               ├── tableformer_fast.safetensors  # Pesi del modello
-               └── prepared_data/
-                   └── WORDMAP_FinTabNet_FullDatasetGenerated.json
+               ├── tm_config.json             # Configurazione del modello (contiene il WORDMAP inline)
+               └── tableformer_fast.safetensors  # Pesi del modello
    ```
 5. Calcola hash SHA-256 per verifica di integrità
 
-**Repository Hugging Face:** `ds4sd/docling-models`
-**Path remoto:** `model_artifacts/tableformer/{variant}/`
+**Release GitHub:** `mapo80/ds4sd-docling-tableformer-onnx` tag `v1.0.0`  
 **Varianti disponibili:** `fast`, `accurate`
 
-**File scaricati automaticamente:**
-- `tm_config.json` – configurazione del modello
+**File estratti automaticamente:**
+- `tm_config.json` – configurazione del modello (include `dataset_wordmap` inline)
 - `tableformer_{variant}.safetensors` – pesi del modello (es. `tableformer_fast.safetensors`)
-- `WORDMAP_*.json` – word map utilizzato dal tokenizer
 
 ### Installazione e utilizzo
 
@@ -129,11 +125,11 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        // 1. Bootstrap: scarica automaticamente i modelli da Hugging Face
+        // 1. Bootstrap: scarica automaticamente i modelli dalla GitHub release (fast/accurate)
         var artifactsRoot = new DirectoryInfo("artifacts");
         using var bootstrapper = new TableFormerArtifactBootstrapper(
             artifactsRoot,
-            variant: "fast");  // o "accurate"
+            TableFormerModelVariant.Fast);  // oppure TableFormerModelVariant.Accurate
 
         var bootstrapResult = await bootstrapper.EnsureArtifactsAsync();
         Console.WriteLine($"Modello scaricato: {bootstrapResult.ModelDirectory.FullName}");
@@ -210,9 +206,11 @@ using TableFormerTorchSharpSdk.Artifacts;
 
 // Download automatico modelli (eseguito solo la prima volta)
 var artifactsRoot = new DirectoryInfo("artifacts");
-using var bootstrapper = new TableFormerArtifactBootstrapper(artifactsRoot, variant: "fast");
+using var bootstrapper = new TableFormerArtifactBootstrapper(
+    artifactsRoot,
+    TableFormerModelVariant.Fast);
 
-// Scarica da Hugging Face se non già presente
+// Scarica dalla release GitHub se non già presente
 var bootstrapResult = await bootstrapper.EnsureArtifactsAsync();
 
 // Inizializza e verifica i pesi
@@ -224,6 +222,21 @@ Console.WriteLine($"Tensori verificati: {predictorSnapshot.TensorDigests.Count}"
 Console.WriteLine($"Word map: {predictorSnapshot.WordMap.Count} tokens");
 ```
 
+### Verifica rapida via CLI
+Per verificare che entrambe le varianti (`fast`, `accurate`) producano gli stessi risultati dei riferimenti Docling è disponibile la CLI:
+
+```bash
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj
+```
+
+Il comando scarica (se necessario) i pesi dalla release GitHub, esegue la pipeline sulle immagini in `dataset/FinTabNet/benchmark` e confronta l'output con i file di riferimento in `results/`.  
+Per rigenerare i riferimenti (ad esempio dopo aver aggiornato gli artifact della release) usare:
+
+```bash
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj -- --variant accurate --update-reference
+dotnet run --project dotnet/TableFormerTorchSharpSdk.Cli/TableFormerTorchSharpSdk.Cli.csproj -- --variant fast --update-reference
+```
+
 ### Struttura directory
 ```
 ds4sd-docling-tableformer-onnx/
@@ -232,9 +245,7 @@ ds4sd-docling-tableformer-onnx/
 │       └── tableformer/
 │           └── fast/                          # o "accurate"
 │               ├── tm_config.json
-│               ├── tableformer_fast.safetensors
-│               └── prepared_data/
-│                   └── WORDMAP_*.json
+│               └── tableformer_fast.safetensors
 ├── dataset/                                   # Dataset per benchmark (opzionale)
 │   └── FinTabNet/
 │       └── benchmark/                         # Immagini PNG
@@ -282,7 +293,7 @@ Ogni iterazione genera:
 ## Componenti della pipeline .NET
 La libreria `TableFormerTorchSharpSdk` implementa tutte le fasi della pipeline Docling:
 
-1. **Bootstrap artifact** – Download e validazione modelli da Hugging Face
+1. **Bootstrap artifact** – Download e validazione modelli dalla release GitHub
 2. **Page preparation** – Resize e normalizzazione delle pagine con SkiaSharp
 3. **Table cropping** – Estrazione delle regioni contenenti tabelle
 4. **Tensorization** – Conversione immagini in tensori normalizzati [1,3,448,448]

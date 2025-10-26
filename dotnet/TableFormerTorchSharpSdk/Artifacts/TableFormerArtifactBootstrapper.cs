@@ -1,67 +1,40 @@
 using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
 
 using TableFormerTorchSharpSdk.Configuration;
 using TableFormerTorchSharpSdk.Initialization;
+using TableFormerTorchSharpSdk.Assets;
 
 namespace TableFormerTorchSharpSdk.Artifacts;
 
 public sealed class TableFormerArtifactBootstrapper : IDisposable
 {
-    private readonly bool _disposeHttpClient;
-    private readonly HuggingFaceArtifactDownloader _downloader;
-    private readonly HttpClient _httpClient;
-
     public TableFormerArtifactBootstrapper(
         DirectoryInfo artifactsRoot,
-        string repoId = "ds4sd/docling-models",
-        string revision = "main",
-        string variant = "fast",
-        HttpClient? httpClient = null)
+        TableFormerModelVariant variant = TableFormerModelVariant.Fast,
+        TableFormerGithubReleaseOptions? releaseOptions = null)
     {
         ArgumentNullException.ThrowIfNull(artifactsRoot);
-        ArgumentException.ThrowIfNullOrEmpty(repoId);
-        ArgumentException.ThrowIfNullOrEmpty(revision);
-        ArgumentException.ThrowIfNullOrEmpty(variant);
 
         ArtifactsRoot = artifactsRoot;
-        RepoId = repoId;
-        Revision = revision;
         Variant = variant;
-
-        if (httpClient is null)
-        {
-            _httpClient = new HttpClient();
-            _disposeHttpClient = true;
-        }
-        else
-        {
-            _httpClient = httpClient;
-        }
-
-        EnsureUserAgent(_httpClient.DefaultRequestHeaders);
-        _downloader = new HuggingFaceArtifactDownloader(_httpClient);
+        ReleaseOptions = releaseOptions ?? new TableFormerGithubReleaseOptions();
     }
 
     public DirectoryInfo ArtifactsRoot { get; }
 
-    public string RepoId { get; }
+    public TableFormerModelVariant Variant { get; }
 
-    public string Revision { get; }
-
-    public string Variant { get; }
+    public TableFormerGithubReleaseOptions ReleaseOptions { get; }
 
     public async Task<TableFormerBootstrapResult> EnsureArtifactsAsync(CancellationToken cancellationToken = default)
     {
-        var modelDirectory = GetModelDirectory();
-        var downloadedFiles = await _downloader.DownloadArtifactsAsync(
-            RepoId,
-            Revision,
+        var downloadResult = await TableFormerReleaseDownloader.EnsureVariantAsync(
             Variant,
-            modelDirectory,
-            cancellationToken);
+            ArtifactsRoot,
+            ReleaseOptions,
+            cancellationToken: cancellationToken);
+
+        var modelDirectory = downloadResult.VariantDirectory;
 
         var configPath = Path.Combine(modelDirectory.FullName, "tm_config.json");
         if (!File.Exists(configPath))
@@ -74,36 +47,12 @@ public sealed class TableFormerArtifactBootstrapper : IDisposable
             modelDirectory.FullName,
             cancellationToken);
 
-        return new TableFormerBootstrapResult(modelDirectory, configSnapshot, downloadedFiles);
+        return new TableFormerBootstrapResult(modelDirectory, configSnapshot, downloadResult.DownloadedFiles);
     }
 
     public void Dispose()
     {
-        if (_disposeHttpClient)
-        {
-            _httpClient.Dispose();
-        }
-    }
-
-    private DirectoryInfo GetModelDirectory()
-    {
-        var variantDirectory = Path.Combine(
-            ArtifactsRoot.FullName,
-            "model_artifacts",
-            "tableformer",
-            Variant);
-
-        var directoryInfo = new DirectoryInfo(variantDirectory);
-        directoryInfo.Create();
-        return directoryInfo;
-    }
-
-    private static void EnsureUserAgent(HttpRequestHeaders headers)
-    {
-        if (!headers.UserAgent.Any())
-        {
-            headers.UserAgent.Add(new ProductInfoHeaderValue("TableFormerTorchSharpSdk", "0.1"));
-        }
+        // No resources to dispose; retained for backwards compatibility with existing using patterns.
     }
 }
 
