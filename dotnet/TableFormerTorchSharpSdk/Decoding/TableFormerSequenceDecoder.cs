@@ -12,7 +12,7 @@ using torch = TorchSharp.torch;
 
 namespace TableFormerTorchSharpSdk.Decoding;
 
-internal sealed class TableFormerSequenceDecoder
+public sealed class TableFormerSequenceDecoder
 {
     private readonly IReadOnlyDictionary<int, string> _reverseWordMapTag;
 

@@ -15,7 +15,7 @@ using TableFormerTorchSharpSdk.Safetensors;
 
 namespace TableFormerTorchSharpSdk.Model;
 
-internal sealed class TableFormerNeuralModel : IDisposable
+public sealed class TableFormerNeuralModel : IDisposable
 {
     private static readonly object TorchInitLock = new();
     private static bool TorchThreadsConfigured;
@@ -515,7 +515,7 @@ internal sealed class TableFormerNeuralModel : IDisposable
 
 internal readonly record struct TorchThreadConfiguration(int ComputeThreads, int InteropThreads);
 
-internal sealed class TableFormerNeuralPrediction : IDisposable
+public sealed class TableFormerNeuralPrediction : IDisposable
 {
     public TableFormerNeuralPrediction(IReadOnlyList<int> sequence, TorchTensor classes, TorchTensor coordinates)
     {
