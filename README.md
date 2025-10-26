@@ -1,99 +1,324 @@
 # ds4sd-docling-tableformer-onnx
 
 ## Informazioni generali
-Repository di valutazione per i modelli `ds4sd/docling-models` dedicati al riconoscimento di tabelle TableFormer.
-L'obiettivo è convertire le varianti *fast* e *accurate* in diversi formati (ONNX, formato ORT, OpenVINO), verificarne la parità rispetto ai modelli originali e misurarne le prestazioni su CPU.
+Repository di implementazione .NET per i modelli TableFormer di Docling. Il progetto fornisce:
+- Implementazione .NET con TorchSharp della pipeline completa di TableFormer
+- Script Python di riferimento per validazione e benchmarking
+- Test di parità tra implementazione Python e .NET
 
-## Modelli di partenza
-Gli artifact HuggingFace disponibili in [`ds4sd/docling-models`](https://huggingface.co/ds4sd/docling-models/tree/main/model_artifacts/tableformer) contengono due configurazioni principali:
+**Nota ONNX:** Sono state tentate conversioni dei modelli in formato ONNX per ottimizzare le performance, ma non hanno avuto successo. L'implementazione attuale utilizza TorchSharp con i modelli originali in formato safetensors.
 
+## Modelli supportati
+Gli artifact HuggingFace disponibili in [`ds4sd/docling-models`](https://huggingface.co/ds4sd/docling-models/tree/main/model_artifacts/tableformer) includono:
 - **TableFormer fast** – ottimizzata per la latenza
 - **TableFormer accurate** – ottimizzata per la qualità dell'estrazione
 
-Entrambe condividono la stessa pipeline di preprocessing (resize a 448×448, normalizzazione RGB) ma differiscono per dimensioni e numero di layer.
+## SDK TorchSharp (.NET 9)
 
-## Formati supportati
-- **PyTorch**: modelli originali in formato `safetensors`
-- **ONNX FP32**: esportazione del grafo encoder/decoder TableFormer
-- **ONNX ottimizzato (ORT)**: grafo compatto per l'esecuzione con ONNX Runtime
-- **OpenVINO IR**: modelli convertiti in `.xml`/`.bin` per CPU Intel
+### Requisiti
+- .NET 9 SDK
+- Dataset FinTabNet per benchmark e validazione (opzionale, vedere sezione "Preparazione dataset")
 
-> La conversione in FP16 e INT8 è in corso di validazione; le istruzioni verranno aggiornate una volta completata la parità.
+### Download automatico dei modelli
+La libreria `TableFormerTorchSharpSdk` **scarica automaticamente** i modelli da Hugging Face. Non è necessario scaricare manualmente i file.
 
-## Pipeline di conversione (bozza)
-1. **Esportazione in ONNX**
-   ```bash
-   python convert_to_onnx.py --model-name tableformer-fast --output models/tableformer-fast.onnx --dataset dataset
-   python convert_to_onnx.py --model-name tableformer-accurate --output models/tableformer-accurate.onnx --dataset dataset
+Al primo avvio, il bootstrapper:
+1. Scarica `tm_config.json` dal repository Hugging Face
+2. Scarica i pesi in formato `safetensors` (es. `tableformer_fast.safetensors`)
+3. Scarica il word map (es. `WORDMAP_FinTabNet_FullDatasetGenerated.json`)
+4. Salva gli artifact nella directory `artifacts/` con la seguente struttura:
    ```
-2. **Ottimizzazione**
-   ```bash
-   python optimize_onnx.py --input models/tableformer-fast.onnx --output models/tableformer-fast-optimized.onnx
-   python optimize_onnx.py --input models/tableformer-accurate.onnx --output models/tableformer-accurate-optimized.onnx
+   artifacts/
+   └── model_artifacts/
+       └── tableformer/
+           └── fast/                          # o "accurate"
+               ├── tm_config.json             # Configurazione del modello
+               ├── tableformer_fast.safetensors  # Pesi del modello
+               └── prepared_data/
+                   └── WORDMAP_FinTabNet_FullDatasetGenerated.json
    ```
-3. **Formato ORT**
-   ```bash
-   python scripts/convert_to_ort.py --input models/tableformer-fast-optimized.onnx --output models/tableformer-fast.ort
-   python scripts/convert_to_ort.py --input models/tableformer-accurate-optimized.onnx --output models/tableformer-accurate.ort
-   ```
-4. **Conversione in OpenVINO**
-   ```bash
-   python scripts/convert_to_openvino.py --input models/tableformer-fast.onnx --output-dir models/ov-ir-fast
-   python scripts/convert_to_openvino.py --input models/tableformer-accurate.onnx --output-dir models/ov-ir-accurate
-   ```
+5. Calcola hash SHA-256 per verifica di integrità
 
-## Benchmark
-Gli script di benchmark generano cartelle `results/<variant>/run-YYYYMMDD-HHMMSS/` con:
-- `timings.csv` – latenza per immagine
-- `summary.json` – statistiche aggregate (media, mediana, p95)
-- `model_info.json` – percorso, dimensione, precisione del modello
-- `env.json`, `config.json`, `manifest.json`, `logs.txt` – contesto di esecuzione
+**Repository Hugging Face:** `ds4sd/docling-models`
+**Path remoto:** `model_artifacts/tableformer/{variant}/`
+**Varianti disponibili:** `fast`, `accurate`
 
-Esempio di benchmark Python per la variante fast:
+**File scaricati automaticamente:**
+- `tm_config.json` – configurazione del modello
+- `tableformer_{variant}.safetensors` – pesi del modello (es. `tableformer_fast.safetensors`)
+- `WORDMAP_*.json` – word map utilizzato dal tokenizer
+
+### Installazione e utilizzo
+
+#### 1. Clonare il repository
 ```bash
-python scripts/bench_python.py --model models/tableformer-fast-optimized.onnx \
-  --images ./dataset --variant-name onnx-fast-fp32-cpu \
-  --sequential --threads-intra 0 --threads-inter 1 --target-h 448 --target-w 448
+git clone <repository-url>
+cd ds4sd-docling-tableformer-onnx
 ```
 
-## SDK TorchSharp (.NET 9)
-La libreria `TableFormerTorchSharpSdk` replica in .NET la pipeline di Docling basata su TorchSharp, fornendo strumenti per scaricare gli artifact Hugging Face, convalidare le configurazioni e garantire la parità numerica con il bootstrap Python.
+#### 2. Generare i riferimenti Python (opzionale, per test di parità)
+I test di parità richiedono file di riferimento generati dalla pipeline Python:
 
-### Componenti principali
-- **Bootstrap artifact** – `TableFormerArtifactBootstrapper` scarica `tm_config.json`, word map e pesi `safetensors`, producendo snapshot firmati per verificare hash e file scaricati.
-- **Inizializzazione del predictor** – `TableFormerPredictorInitializer` ricostruisce la pipeline TorchSharp eseguendo controlli di parità sui tensori rispetto al riferimento Python.
-- **Pipeline completa** – i moduli in `PagePreparation`, `Tensorization`, `Model`, `Decoding`, `Matching` e `Results` riproducono il resize delle pagine, la generazione dei tensori, il forward pass e la ricostruzione delle celle con le stesse tolleranze impiegate da Docling.
+```bash
+# Installare dipendenze Python
+pip install -r requirements.txt
 
-### Utilizzo rapido
+# Generare tutti i riferimenti necessari
+PYTHONPATH=tableformer-docling python scripts/hash_tableformer_config.py \
+  --variant fast --output results/tableformer_config_fast_hash.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_init_reference.py \
+  --variant fast --output results/tableformer_init_fast_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_page_input.py \
+  --output results/tableformer_page_input_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_table_crops.py \
+  --output results/tableformer_table_crops_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_image_tensors.py \
+  --output results/tableformer_image_tensors_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_neural_outputs.py \
+  --output results/tableformer_neural_outputs_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_sequence_decoding.py \
+  --output results/tableformer_sequence_decoding_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_cell_matching.py \
+  --output results/tableformer_cell_matching_reference.json
+
+PYTHONPATH=tableformer-docling python scripts/export_tableformer_post_processing.py \
+  --output results/tableformer_post_processing_reference.json
+```
+
+#### 3. Eseguire i test di parità (opzionale)
+```bash
+# Test completo della suite TorchSharp
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharp
+
+# Oppure test specifici per ogni fase della pipeline:
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpInitializationTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPageInputTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpTableCropTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpImageTensorTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpNeuralInferenceTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpSequenceDecodingTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpCellMatchingTests
+dotnet test TableFormerSdk.sln --filter TableFormerTorchSharpPostProcessingTests
+```
+
+#### 4. Utilizzare l'SDK nel codice
+
+**Esempio completo: pipeline end-to-end**
+
 ```csharp
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using TableFormerTorchSharpSdk.Artifacts;
-using TableFormerTorchSharpSdk.Configuration;
+using TableFormerTorchSharpSdk.Decoding;
+using TableFormerTorchSharpSdk.Matching;
+using TableFormerTorchSharpSdk.Model;
+using TableFormerTorchSharpSdk.PagePreparation;
+using TableFormerTorchSharpSdk.Results;
+using TableFormerTorchSharpSdk.Tensorization;
 
-var artifactsRoot = new DirectoryInfo(Path.Combine(Environment.CurrentDirectory, "artifacts"));
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        // 1. Bootstrap: scarica automaticamente i modelli da Hugging Face
+        var artifactsRoot = new DirectoryInfo("artifacts");
+        using var bootstrapper = new TableFormerArtifactBootstrapper(
+            artifactsRoot,
+            variant: "fast");  // o "accurate"
+
+        var bootstrapResult = await bootstrapper.EnsureArtifactsAsync();
+        Console.WriteLine($"Modello scaricato: {bootstrapResult.ModelDirectory.FullName}");
+
+        // 2. Inizializza il predictor (carica pesi safetensors)
+        var initSnapshot = await bootstrapResult.InitializePredictorAsync();
+        Console.WriteLine($"Tensori caricati: {initSnapshot.TensorDigests.Count}");
+
+        // 3. Crea il modello neurale
+        TableFormerNeuralModel.ConfigureThreading(Environment.ProcessorCount);
+        using var neuralModel = new TableFormerNeuralModel(
+            bootstrapResult.ConfigSnapshot,
+            initSnapshot,
+            bootstrapResult.ModelDirectory);
+
+        // 4. Prepara i componenti della pipeline
+        var decoder = new TableFormerSequenceDecoder(initSnapshot);
+        var cellMatcher = new TableFormerCellMatcher(bootstrapResult.ConfigSnapshot);
+        var cropper = new TableFormerTableCropper();
+        var tensorizer = TableFormerImageTensorizer.FromConfig(bootstrapResult.ConfigSnapshot);
+        var preparer = new TableFormerPageInputPreparer();
+        var postProcessor = new TableFormerMatchingPostProcessor();
+        var assembler = new TableFormerDoclingResponseAssembler();
+
+        // 5. Processa un'immagine
+        var imageFile = new FileInfo("path/to/table-image.png");
+        var decodedImage = TableFormerDecodedPageImage.Decode(imageFile);
+
+        // 6. Pipeline completa
+        var pageSnapshot = preparer.PreparePageInput(decodedImage);
+        var cropSnapshot = cropper.PrepareTableCrops(decodedImage, pageSnapshot.TableBoundingBoxes);
+
+        foreach (var crop in cropSnapshot.TableCrops)
+        {
+            // Tensorizzazione
+            using var tensorSnapshot = tensorizer.CreateTensor(crop);
+
+            // Inferenza neurale
+            using var prediction = neuralModel.Predict(tensorSnapshot.Tensor);
+
+            // Decodifica sequenza
+            var decoded = decoder.Decode(prediction);
+
+            // Cell matching
+            var matchingResult = cellMatcher.MatchCells(pageSnapshot, crop, decoded);
+            var matchingDetails = matchingResult.ToMatchingDetails();
+
+            // Post-processing
+            var processed = postProcessor.Process(
+                matchingDetails.ToMutable(),
+                correctOverlappingCells: false);
+
+            // Assembla risultato finale
+            var result = assembler.Assemble(processed, decoded, sortRowColIndexes: true);
+
+            // Stampa risultati
+            Console.WriteLine($"Tabella rilevata: {result.Data.Rows.Count} righe, {result.Data.Cols.Count} colonne");
+            foreach (var cell in result.TableCells.Where(c => !c.IsProjected))
+            {
+                Console.WriteLine($"  Cella [{cell.RowIndex}, {cell.ColIndex}]: bbox={cell.Bbox}");
+            }
+        }
+    }
+}
+```
+
+**Esempio semplice: solo bootstrap e inizializzazione**
+
+```csharp
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using TableFormerTorchSharpSdk.Artifacts;
+
+// Download automatico modelli (eseguito solo la prima volta)
+var artifactsRoot = new DirectoryInfo("artifacts");
 using var bootstrapper = new TableFormerArtifactBootstrapper(artifactsRoot, variant: "fast");
 
+// Scarica da Hugging Face se non già presente
 var bootstrapResult = await bootstrapper.EnsureArtifactsAsync();
-bootstrapResult.EnsureConfigMatches(await TableFormerConfigReference.LoadAsync(
-    "results/tableformer_config_fast_hash.json"));
 
+// Inizializza e verifica i pesi
 var predictorSnapshot = await bootstrapResult.InitializePredictorAsync();
-Console.WriteLine($"Tensors verified: {predictorSnapshot.TensorDigests.Count}");
+
+Console.WriteLine($"Modello pronto!");
+Console.WriteLine($"Directory: {bootstrapResult.ModelDirectory.FullName}");
+Console.WriteLine($"Tensori verificati: {predictorSnapshot.TensorDigests.Count}");
+Console.WriteLine($"Word map: {predictorSnapshot.WordMap.Count} tokens");
 ```
 
-### Test e benchmark .NET
-- **Test unitari**: `dotnet test TableFormerSdk.sln --filter TableFormerTorchSharp` per eseguire i test di parità TorchSharp.
-- **Benchmark**: `dotnet/TableFormerTorchSharpSdk.Benchmarks` riproduce gli script Python salvando tempi, overlay e metadati.
+### Struttura directory
+```
+ds4sd-docling-tableformer-onnx/
+├── artifacts/                                 # Modelli scaricati automaticamente
+│   └── model_artifacts/
+│       └── tableformer/
+│           └── fast/                          # o "accurate"
+│               ├── tm_config.json
+│               ├── tableformer_fast.safetensors
+│               └── prepared_data/
+│                   └── WORDMAP_*.json
+├── dataset/                                   # Dataset per benchmark (opzionale)
+│   └── FinTabNet/
+│       └── benchmark/                         # Immagini PNG
+├── dotnet/
+│   ├── TableFormerTorchSharpSdk/              # Libreria principale
+│   ├── TableFormerSdk.Tests/                  # Test di parità
+│   ├── TableFormerTorchSharpSdk.Benchmarks/   # CLI per performance
+│   └── TableFormerVisualizer/                 # Tool di visualizzazione
+├── results/                                   # File di riferimento Python
+├── scripts/                                   # Script Python per riferimenti
+└── tableformer-docling/                       # Implementazione Python di riferimento
+```
 
+### Preparazione dataset (opzionale)
+Il dataset FinTabNet è richiesto solo per eseguire i benchmark di performance. Posizionare le immagini PNG in:
+```
+dataset/FinTabNet/benchmark/
+```
+
+### Benchmark delle performance
 ```bash
-dotnet run --project dotnet/TableFormerTorchSharpSdk.Benchmarks/TableFormerTorchSharpSdk.Benchmarks.csproj -- \
-  --engine TorchSharp --variant-name Fast \
-  --artifacts-root artifacts --output results/benchmarks \
-  --runs-per-image 5 --warmup 1 --target-h 448 --target-w 448
+dotnet run -c Release \
+  --project dotnet/TableFormerTorchSharpSdk.Benchmarks \
+  -- --dataset dataset/FinTabNet/benchmark \
+     --baseline results/perf_baseline.json \
+     --iterations 3 \
+     --label optimized
 ```
 
-## Requisiti
-Installare le dipendenze principali:
+Opzioni disponibili:
+- `--dataset <path>`: directory con le immagini PNG del benchmark
+- `--runs-dir <path>`: directory output per i JSON delle iterazioni (default: `results/perf_runs`)
+- `--report <path>`: percorso del report Markdown (default: `results/performance_report.md`)
+- `--baseline <path>`: baseline di riferimento per il confronto
+- `--iterations <n>`: numero di iterazioni da eseguire
+- `--label <name>`: etichetta per identificare il run
+- `--num-threads <n>`: numero di thread per TorchSharp
+- `--skip-reference-check`: salta la verifica delle predizioni contro il riferimento Python
+
+Ogni iterazione genera:
+- Timings per documento
+- Breakdown per fase della pipeline
+- Metadata (configurazione thread TorchSharp, versione .NET, commit git, ecc.)
+
+## Componenti della pipeline .NET
+La libreria `TableFormerTorchSharpSdk` implementa tutte le fasi della pipeline Docling:
+
+1. **Bootstrap artifact** – Download e validazione modelli da Hugging Face
+2. **Page preparation** – Resize e normalizzazione delle pagine con SkiaSharp
+3. **Table cropping** – Estrazione delle regioni contenenti tabelle
+4. **Tensorization** – Conversione immagini in tensori normalizzati [1,3,448,448]
+5. **Neural inference** – Forward pass con TorchSharp (encoder + decoder con attention)
+6. **Sequence decoding** – Decodifica tag OTSL/HTML e coordinate bounding box
+7. **Cell matching** – Matching celle tra predizioni neurali e contenuto PDF
+8. **Post-processing** – Riallineamento colonne e ricostruzione struttura tabellare
+9. **Response assembly** – Generazione output finale in formato Docling
+
+Ogni fase garantisce parità numerica con Python attraverso test automatizzati con tolleranze specifiche (1e-5 per logits, 1.5e-7 per bounding box, 2e-5 per coordinate pagina).
+
+## Script Python disponibili
+
+### Benchmark Python
 ```bash
-pip install -r requirements.txt
+python scripts/benchmark_docling_python.py  # Benchmark con pipeline Docling completa
 ```
-I modelli di grandi dimensioni vengono salvati nella cartella `models/` ed esclusi dal versionamento git.
+
+### Validazione e confronto
+```bash
+python compare_kpi.py                       # Confronto KPI tra modelli
+python compare_tableformer_results.py       # Confronto risultati TableFormer
+```
+
+### Export riferimenti per test di parità
+```bash
+# Hash configurazione
+python scripts/hash_tableformer_config.py --variant fast
+
+# Export snapshot per ogni fase della pipeline
+python scripts/export_tableformer_init_reference.py
+python scripts/export_tableformer_page_input.py
+python scripts/export_tableformer_table_crops.py
+python scripts/export_tableformer_image_tensors.py
+python scripts/export_tableformer_neural_outputs.py
+python scripts/export_tableformer_sequence_decoding.py
+python scripts/export_tableformer_cell_matching.py
+python scripts/export_tableformer_post_processing.py
+```
